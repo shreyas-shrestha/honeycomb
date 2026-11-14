@@ -1,36 +1,39 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Hive
 
-## Getting Started
+A learning harness for Georgia Tech courses: give it your syllabus and it builds a study plan that teaches each topic, makes you try before it explains, and schedules review before you forget. Independent student project, not affiliated with or endorsed by Georgia Tech.
 
-First, run the development server:
+The product plan, research and roadmap are in [docs/PLAN.md](docs/PLAN.md).
+
+## Run it
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000 and choose **Load the demo course** to try a sample CS 1332 course with no setup.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+To build courses from your own syllabus and turn on the tutor, generated lessons and AI grading:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+cp .env.example .env.local
+```
 
-## Learn More
+Put your Anthropic API key in `.env.local` and restart the dev server.
 
-To learn more about Next.js, take a look at the following resources:
+## Layout
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Path | What it is |
+|---|---|
+| `src/app/page.tsx` | Courses and "add a course" |
+| `src/app/course` | Study plan: exams, up next, course map |
+| `src/app/learn` | A session: try first, learn, practice, teach back, with the tutor |
+| `src/app/review` | Spaced review queue across courses |
+| `src/app/teach` | Instructor settings |
+| `src/app/api/*` | Model calls: course map, lesson, questions, grading, tutor |
+| `src/lib/mastery.ts` | Mastery, FSRS scheduling, exam readiness, what to study next |
+| `src/lib/modes.ts` | The five explanation formats |
+| `src/lib/store.ts` | Browser-local state |
+| `src/lib/demo-course.ts` | Hand-written demo content |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+All progress is stored in the browser's local storage. There are no accounts yet.
