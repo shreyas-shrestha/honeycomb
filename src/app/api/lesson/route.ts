@@ -13,7 +13,7 @@ export async function POST(req: Request) {
   const body = await parseBody(req, Body);
   if (!body.ok) return body.response;
   const { context, mode, classId } = body.data;
-  const policy = policyFor(auth.user, classId, context.courseCode);
+  const policy = await policyFor(auth.user, classId, context.courseCode);
   if (!policy.allowedModes.includes(mode)) return Response.json({ error: "Your instructor has turned this format off for the course." }, { status: 403 });
   if (!aiAvailable()) return NO_AI();
   const m = modeById(mode);

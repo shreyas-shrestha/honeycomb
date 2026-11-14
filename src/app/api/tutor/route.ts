@@ -30,7 +30,7 @@ export async function POST(req: Request) {
   if (!body.ok) return body.response;
   const { context, classId, question, aiPolicy } = body.data;
   // The help level comes from the student's class membership on the server, never from the request.
-  const policy = policyFor(auth.user, classId, context.courseCode);
+  const policy = await policyFor(auth.user, classId, context.courseCode);
 
   const history = body.data.messages.filter((m) => m.content.trim()).slice(-30);
   if (history.at(-1)?.role !== "user") return Response.json({ error: "Ask a question first." }, { status: 400 });

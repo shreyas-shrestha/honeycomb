@@ -1,11 +1,10 @@
-import Database from "better-sqlite3";
+import { createClient, type Client, type InValue } from "@libsql/client";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 
-// One SQLite file holds accounts, sessions, each learner's saved state and the
-// classes instructors publish. HONEYCOMB_DB moves it (":memory:" works for tests).
-const file = process.env.HONEYCOMB_DB ?? path.join(process.cwd(), "data", "honeycomb.db");
-
+// Accounts, sessions, each learner's saved state and published classes live in
+// one SQLite-compatible database. Locally that is a file; when deployed it is a
+// hosted libSQL database (Turso), because serverless hosts have no lasting disk.
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
@@ -46,20 +45,47 @@ const SCHEMA = `
   );
 `;
 
-// Next's dev server reloads modules; keep one connection across reloads.
-const holder = globalThis as unknown as { __honeycombDb?: Database.Database };
+async function open(): Promise<Client> {
+  const remote = process.env.TURSO_DATABASE_URL;
+  if (!remote && process.env.VERCEL) {
+    throw new Error("No database is configured. Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN for this deployment.");
+  }
+  let client: Client;
+  if (remote) {
+    client = createClient({ url: remote, authToken: process.env.TURSO_AUTH_TOKEN });
+  } else {
+    const file = process.env.HONEYCOMB_DB ?? path.join(process.cwd(), "data", "honeycomb.db");
+    mkdirSync(path.dirname(file), { recursive: true });
+    client = createClient({ url: `file:${file}` });
+  }
+  await client.executeMultiple(SCHEMA);
+  return client;
+}
 
-export function db(): Database.Database {
+// One connection per server process, kept across the dev server's module reloads.
+const holder = globalThis as unknown as { __honeycombDb?: Promise<Client> };
+
+function db(): Promise<Client> {
   if (!holder.__honeycombDb) {
-    if (file !== ":memory:") mkdirSync(path.dirname(file), { recursive: true });
-    const conn = new Database(file);
-    conn.pragma("journal_mode = WAL");
-    conn.pragma("foreign_keys = ON");
-    conn.exec(SCHEMA);
-    // Added after the first version; existing databases get the column on start.
-    const columns = conn.prepare("PRAGMA table_info(classes)").all() as { name: string }[];
-    if (!columns.some((c) => c.name === "course_code")) conn.exec("ALTER TABLE classes ADD COLUMN course_code TEXT NOT NULL DEFAULT ''");
-    holder.__honeycombDb = conn;
+    const opening = open();
+    holder.__honeycombDb = opening;
+    // A failed start should be retried on the next request, not remembered.
+    opening.catch(() => {
+      if (holder.__honeycombDb === opening) holder.__honeycombDb = undefined;
+    });
   }
   return holder.__honeycombDb;
+}
+
+export async function all<T>(sql: string, ...args: InValue[]): Promise<T[]> {
+  return (await (await db()).execute({ sql, args })).rows as unknown as T[];
+}
+
+export async function one<T>(sql: string, ...args: InValue[]): Promise<T | undefined> {
+  return (await all<T>(sql, ...args))[0];
+}
+
+// Runs a write and returns how many rows it changed.
+export async function run(sql: string, ...args: InValue[]): Promise<number> {
+  return (await (await db()).execute({ sql, args })).rowsAffected;
 }

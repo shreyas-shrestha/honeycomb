@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { hashPassword, newId, publicRouteBlocked, startSession } from "@/lib/server/auth";
 import { parseBody } from "@/lib/server/body";
-import { db } from "@/lib/server/db";
+import { one, run } from "@/lib/server/db";
 import type { User } from "@/lib/types";
 
 const Body = z.object({
@@ -20,13 +20,13 @@ export async function POST(req: Request) {
   if (!body.ok) return body.response;
   const { name, email, password, role } = body.data;
 
-  if (db().prepare("SELECT 1 FROM users WHERE email = ?").get(email)) {
+  if (await one("SELECT 1 FROM users WHERE email = ?", email)) {
     return Response.json({ error: TAKEN }, { status: 409 });
   }
   const user: User = { id: newId(), email, name, role };
   const hash = await hashPassword(password);
   try {
-    db().prepare("INSERT INTO users (id, email, name, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(user.id, email, name, role, hash, Date.now());
+    await run("INSERT INTO users (id, email, name, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)", user.id, email, name, role, hash, Date.now());
   } catch (e) {
     // Two requests for the same email can both pass the check above; the second insert fails here.
     if (e instanceof Error && e.message.includes("users.email")) return Response.json({ error: TAKEN }, { status: 409 });

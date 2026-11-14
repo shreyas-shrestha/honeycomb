@@ -70,7 +70,7 @@ export async function POST(req: Request) {
   const body = await parseBody(req, Body);
   if (!body.ok) return body.response;
   const { context, classId, kinds, note } = body.data;
-  const policy = policyFor(auth.user, classId, context.courseCode);
+  const policy = await policyFor(auth.user, classId, context.courseCode);
 
   const system = `You design short interactive lessons for a study app used by Georgia Tech students. A lesson is a sequence of blocks the student works through one at a time, each unlocking the next. The student learns by doing something in nearly every block, so a lesson that is mostly reading has failed even if the explanation is good.
 

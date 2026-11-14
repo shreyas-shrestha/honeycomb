@@ -33,7 +33,7 @@ export async function POST(req: Request) {
   const body = await parseBody(req, Body);
   if (!body.ok) return body.response;
   const { context, classId, topicId, avoid } = body.data;
-  const policy = policyFor(auth.user, classId, context.courseCode);
+  const policy = await policyFor(auth.user, classId, context.courseCode);
 
   const system = `You write practice questions for a study app used by Georgia Tech students. The questions are how the app measures whether the student has learned a topic, and they are reused later for spaced review, so each one must stand on its own and have one defensible answer.
 

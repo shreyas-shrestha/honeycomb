@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { hashPassword, publicRouteBlocked, rateLimited, startSession, verifyPassword } from "@/lib/server/auth";
 import { parseBody } from "@/lib/server/body";
-import { db } from "@/lib/server/db";
+import { one } from "@/lib/server/db";
 import type { User } from "@/lib/types";
 
 const Body = z.object({
@@ -23,9 +23,7 @@ export async function POST(req: Request) {
     return Response.json({ error: "Too many attempts for that account. Wait a few minutes and try again." }, { status: 429 });
   }
 
-  const row = db().prepare("SELECT id, email, name, role, password_hash FROM users WHERE email = ?").get(email) as
-    | (User & { password_hash: string })
-    | undefined;
+  const row = await one<User & { password_hash: string }>("SELECT id, email, name, role, password_hash FROM users WHERE email = ?", email);
   const ok = await verifyPassword(password, row?.password_hash ?? (await decoy));
   if (!row || !ok) return Response.json({ error: "That email and password do not match an account." }, { status: 401 });
 

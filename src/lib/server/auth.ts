@@ -2,7 +2,7 @@ import { createHash, randomBytes, scrypt as scryptCb, timingSafeEqual } from "no
 import { promisify } from "node:util";
 import { cookies } from "next/headers";
 import type { User } from "../types";
-import { db } from "./db";
+import { one, run } from "./db";
 
 const scrypt = promisify(scryptCb) as (password: string, salt: Buffer, keylen: number) => Promise<Buffer>;
 
@@ -32,8 +32,8 @@ export async function verifyPassword(password: string, stored: string): Promise<
 export async function startSession(userId: string): Promise<void> {
   const token = newId(32);
   const expires = Date.now() + SESSION_MS;
-  db().prepare("DELETE FROM sessions WHERE expires_at < ?").run(Date.now());
-  db().prepare("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)").run(sha256(token), userId, expires);
+  await run("DELETE FROM sessions WHERE expires_at < ?", Date.now());
+  await run("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)", sha256(token), userId, expires);
   (await cookies()).set(COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
@@ -46,19 +46,20 @@ export async function startSession(userId: string): Promise<void> {
 export async function endSession(): Promise<void> {
   const jar = await cookies();
   const token = jar.get(COOKIE)?.value;
-  if (token) db().prepare("DELETE FROM sessions WHERE token_hash = ?").run(sha256(token));
+  if (token) await run("DELETE FROM sessions WHERE token_hash = ?", sha256(token));
   jar.delete(COOKIE);
 }
 
 export async function currentUser(): Promise<User | null> {
   const token = (await cookies()).get(COOKIE)?.value;
   if (!token) return null;
-  const row = db()
-    .prepare(
-      "SELECT u.id, u.email, u.name, u.role FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?",
-    )
-    .get(sha256(token), Date.now()) as User | undefined;
-  return row ?? null;
+  const row = await one<User>(
+    "SELECT u.id, u.email, u.name, u.role FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?",
+    sha256(token),
+    Date.now(),
+  );
+  // Copied field by field: the driver's row object is not plain JSON.
+  return row ? { id: row.id, email: row.email, name: row.name, role: row.role } : null;
 }
 
 const fail = (error: string, status: number) => Response.json({ error }, { status });

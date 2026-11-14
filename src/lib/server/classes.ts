@@ -1,7 +1,7 @@
 import { randomInt } from "node:crypto";
 import { DEFAULT_POLICY, type ClassBundle, type ClassInsights, type ClassSummary, type HelpLevel, type InstructorPolicy, type User } from "../types";
 import { newId } from "./auth";
-import { db } from "./db";
+import { all, one, run } from "./db";
 
 // Letters and digits that are hard to misread aloud or on a whiteboard.
 const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -22,7 +22,8 @@ interface ClassRow {
   data: string;
 }
 
-const byId = (id: string) => db().prepare("SELECT * FROM classes WHERE id = ?").get(id) as ClassRow | undefined;
+const byId = (id: string) => one<ClassRow>("SELECT * FROM classes WHERE id = ?", id);
+const studentCount = async (classId: string) => (await one<{ n: number }>("SELECT COUNT(*) AS n FROM memberships WHERE class_id = ?", classId))?.n ?? 0;
 const normalCode = (code: string) => code.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
 // Keeps only content that belongs to the bundle's own topics, so a published
@@ -62,55 +63,55 @@ function forMember(bundle: ClassBundle, row: ClassRow): ClassBundle {
   };
 }
 
-function summary(row: ClassRow): ClassSummary {
-  const { n } = db().prepare("SELECT COUNT(*) AS n FROM memberships WHERE class_id = ?").get(row.id) as { n: number };
-  return { id: row.id, code: row.code, courseId: row.course_id, title: row.title, students: n, policy: JSON.parse(row.policy) as InstructorPolicy };
+async function summary(row: ClassRow): Promise<ClassSummary> {
+  return { id: row.id, code: row.code, courseId: row.course_id, title: row.title, students: await studentCount(row.id), policy: JSON.parse(row.policy) as InstructorPolicy };
 }
 
 // Publishing the same course again updates the class in place and keeps its code.
 // Returns null when the owner already has as many classes as allowed.
-export function publishClass(owner: User, input: ClassBundle): ClassSummary | null {
+export async function publishClass(owner: User, input: ClassBundle): Promise<ClassSummary | null> {
   const bundle = ownContentOnly(input);
   const title = `${bundle.course.code} ${bundle.course.title}`;
   const code = normalCode(bundle.course.code);
-  const existing = db().prepare("SELECT * FROM classes WHERE owner_id = ? AND course_id = ?").get(owner.id, bundle.course.id) as ClassRow | undefined;
+  const existing = await one<ClassRow>("SELECT * FROM classes WHERE owner_id = ? AND course_id = ?", owner.id, bundle.course.id);
   if (existing) {
-    db().prepare("UPDATE classes SET title = ?, course_code = ?, data = ?, updated_at = ? WHERE id = ?").run(title, code, JSON.stringify(bundle), Date.now(), existing.id);
-    return summary(byId(existing.id)!);
+    await run("UPDATE classes SET title = ?, course_code = ?, data = ?, updated_at = ? WHERE id = ?", title, code, JSON.stringify(bundle), Date.now(), existing.id);
+    return summary((await byId(existing.id))!);
   }
-  const { n } = db().prepare("SELECT COUNT(*) AS n FROM classes WHERE owner_id = ?").get(owner.id) as { n: number };
-  if (n >= MAX_CLASSES_PER_OWNER) return null;
+  const owned = (await one<{ n: number }>("SELECT COUNT(*) AS n FROM classes WHERE owner_id = ?", owner.id))?.n ?? 0;
+  if (owned >= MAX_CLASSES_PER_OWNER) return null;
   const id = newId();
   for (let attempt = 0; ; attempt++) {
     try {
-      db()
-        .prepare("INSERT INTO classes (id, code, owner_id, course_id, course_code, title, policy, data, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .run(id, newCode(), owner.id, bundle.course.id, code, title, JSON.stringify(DEFAULT_POLICY), JSON.stringify(bundle), Date.now());
+      await run(
+        "INSERT INTO classes (id, code, owner_id, course_id, course_code, title, policy, data, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        id, newCode(), owner.id, bundle.course.id, code, title, JSON.stringify(DEFAULT_POLICY), JSON.stringify(bundle), Date.now(),
+      );
       break;
     } catch (e) {
       // A code collision is the only expected failure; anything else, or a run of them, is real.
       if (attempt >= 4 || !(e instanceof Error) || !e.message.includes("classes.code")) throw e;
     }
   }
-  return summary(byId(id)!);
+  return summary((await byId(id))!);
 }
 
-export function listClasses(ownerId: string): ClassSummary[] {
-  return (db().prepare("SELECT * FROM classes WHERE owner_id = ? ORDER BY updated_at DESC").all(ownerId) as ClassRow[]).map(summary);
+export async function listClasses(ownerId: string): Promise<ClassSummary[]> {
+  return Promise.all((await all<ClassRow>("SELECT * FROM classes WHERE owner_id = ? ORDER BY updated_at DESC", ownerId)).map(summary));
 }
 
 export type JoinResult = { ok: true; bundle: ClassBundle } | { ok: false; reason: "not-found" | "own-class" };
 
-export function joinClass(user: User, code: string): JoinResult {
-  const row = db().prepare("SELECT * FROM classes WHERE code = ?").get(code.trim().toUpperCase()) as ClassRow | undefined;
+export async function joinClass(user: User, code: string): Promise<JoinResult> {
+  const row = await one<ClassRow>("SELECT * FROM classes WHERE code = ?", code.trim().toUpperCase());
   if (!row) return { ok: false, reason: "not-found" };
   if (row.owner_id === user.id) return { ok: false, reason: "own-class" };
-  db().prepare("INSERT OR IGNORE INTO memberships (class_id, user_id, joined_at) VALUES (?, ?, ?)").run(row.id, user.id, Date.now());
+  await run("INSERT OR IGNORE INTO memberships (class_id, user_id, joined_at) VALUES (?, ?, ?)", row.id, user.id, Date.now());
   return { ok: true, bundle: forMember(JSON.parse(row.data) as ClassBundle, row) };
 }
 
-export function leaveClass(user: User, classId: string): void {
-  db().prepare("DELETE FROM memberships WHERE class_id = ? AND user_id = ?").run(classId, user.id);
+export async function leaveClass(user: User, classId: string): Promise<void> {
+  await run("DELETE FROM memberships WHERE class_id = ? AND user_id = ?", classId, user.id);
 }
 
 const STRICTNESS: Record<HelpLevel, number> = { hints: 0, guided: 1, full: 2 };
@@ -121,10 +122,8 @@ const STRICTNESS: Record<HelpLevel, number> = { hints: 0, guided: 1, full: 2 };
 // two matching classes the stricter one applies. A request that names a
 // different course altogether gets the defaults: the server cannot know what a
 // student is really studying, only which classes they belong to.
-export function policyFor(user: User, classId: string | undefined, courseCode: string): InstructorPolicy {
-  const mine = db()
-    .prepare("SELECT c.* FROM classes c WHERE c.owner_id = ? OR c.id IN (SELECT class_id FROM memberships WHERE user_id = ?)")
-    .all(user.id, user.id) as ClassRow[];
+export async function policyFor(user: User, classId: string | undefined, courseCode: string): Promise<InstructorPolicy> {
+  const mine = await all<ClassRow>("SELECT c.* FROM classes c WHERE c.owner_id = ? OR c.id IN (SELECT class_id FROM memberships WHERE user_id = ?)", user.id, user.id);
   const code = normalCode(courseCode);
   const policies = mine
     .filter((c) => c.id === classId || (code !== "" && c.course_code === code))
@@ -133,8 +132,8 @@ export function policyFor(user: User, classId: string | undefined, courseCode: s
   return policies[0] ?? DEFAULT_POLICY;
 }
 
-export function setPolicy(owner: User, classId: string, policy: InstructorPolicy): boolean {
-  return db().prepare("UPDATE classes SET policy = ?, updated_at = ? WHERE id = ? AND owner_id = ?").run(JSON.stringify(policy), Date.now(), classId, owner.id).changes > 0;
+export async function setPolicy(owner: User, classId: string, policy: InstructorPolicy): Promise<boolean> {
+  return (await run("UPDATE classes SET policy = ?, updated_at = ? WHERE id = ? AND owner_id = ?", JSON.stringify(policy), Date.now(), classId, owner.id)) > 0;
 }
 
 const count = (x: unknown) => (typeof x === "number" && Number.isFinite(x) && x > 0 ? Math.floor(x) : 0);
@@ -142,15 +141,13 @@ const fraction = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? 
 
 // Topic-level averages across everyone who joined. Saved state comes from
 // students' browsers, so every number is checked before it is counted.
-export function classInsights(owner: User, classId: string): ClassInsights | null {
-  const row = byId(classId);
+export async function classInsights(owner: User, classId: string): Promise<ClassInsights | null> {
+  const row = await byId(classId);
   if (!row || row.owner_id !== owner.id) return null;
   const bundle = JSON.parse(row.data) as ClassBundle;
   const prefix = memberPrefix(row.id);
-  const members = db()
-    .prepare("SELECT s.data FROM memberships m JOIN user_state s ON s.user_id = m.user_id WHERE m.class_id = ?")
-    .all(classId) as { data: string }[];
-  const { n } = db().prepare("SELECT COUNT(*) AS n FROM memberships WHERE class_id = ?").get(classId) as { n: number };
+  const members = await all<{ data: string }>("SELECT s.data FROM memberships m JOIN user_state s ON s.user_id = m.user_id WHERE m.class_id = ?", classId);
+  const n = await studentCount(classId);
 
   const totals = new Map(bundle.course.topics.map((t) => [prefix + t.id, { topicId: t.id, title: t.title, students: 0, mastery: 0 }]));
   let active = 0;

@@ -13,7 +13,7 @@ export async function POST(req: Request) {
   if (rateLimited(`join:${auth.user.id}`, 10, 10 * 60_000)) return Response.json({ error: "Too many attempts. Wait a few minutes and try again." }, { status: 429 });
   const body = await parseBody(req, Join);
   if (!body.ok) return body.response;
-  const result = joinClass(auth.user, body.data.code);
+  const result = await joinClass(auth.user, body.data.code);
   if (result.ok) return Response.json({ bundle: result.bundle });
   return result.reason === "own-class"
     ? Response.json({ error: "That is your own class. Manage it from Classes." }, { status: 400 })
@@ -25,6 +25,6 @@ export async function DELETE(req: Request) {
   if (!auth.ok) return auth.response;
   const body = await parseBody(req, Leave);
   if (!body.ok) return body.response;
-  leaveClass(auth.user, body.data.classId);
+  await leaveClass(auth.user, body.data.classId);
   return Response.json({ ok: true });
 }

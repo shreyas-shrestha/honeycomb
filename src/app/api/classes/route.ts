@@ -7,7 +7,7 @@ const MAX_BUNDLE_BYTES = 3_000_000;
 export async function GET(req: Request) {
   const auth = await requireUser(req, { role: "instructor" });
   if (!auth.ok) return auth.response;
-  return Response.json({ classes: listClasses(auth.user.id) });
+  return Response.json({ classes: await listClasses(auth.user.id) });
 }
 
 export async function POST(req: Request) {
@@ -15,7 +15,7 @@ export async function POST(req: Request) {
   if (!auth.ok) return auth.response;
   const body = await parseBody(req, BundleSchema, MAX_BUNDLE_BYTES);
   if (!body.ok) return body.response;
-  const cls = publishClass(auth.user, body.data);
+  const cls = await publishClass(auth.user, body.data);
   if (!cls) return Response.json({ error: "You have reached the limit on published classes." }, { status: 400 });
   return Response.json({ class: cls });
 }

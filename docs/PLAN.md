@@ -72,7 +72,7 @@ Current build:
 
 - **Next.js 16 (App Router), TypeScript, Tailwind 4.** Pages: `/` (landing, or your courses), `/course` (study plan), `/learn` (session), `/review`, `/studio` (lesson builder), `/teach` (classes).
 - **Accounts**: email and password. Passwords are hashed with scrypt; the session is a random token in an httpOnly cookie, stored hashed. Every signed-in route checks the session and refuses cross-site requests; AI routes and sign-in are rate limited.
-- **Data**: SQLite (`data/honeycomb.db`) holding users, sessions, each learner's saved state as one JSON document with a revision counter, classes, and memberships. The browser keeps a copy in memory and saves changes back; a stale save is refused so two tabs cannot overwrite each other.
+- **Data**: libSQL, which is a SQLite file locally (`data/honeycomb.db`) and a hosted Turso database when deployed, holding users, sessions, each learner's saved state as one JSON document with a revision counter, classes, and memberships. The browser keeps a copy in memory and saves changes back; a stale save is refused so two tabs cannot overwrite each other.
 - **Classes**: an instructor publishes a course bundle (map, lessons, questions) and gets a class code. Students join with the code. The tutor rules are stored on the class and found on the server from the student's membership (by class, or by course code if the request leaves the class out), so the browser does not get to pick them. A student who rewrites requests to name a different course gets the defaults. Instructors see topic-level averages across the class, and only for topics at least three students have practiced.
 - **Interactive lessons**: a lesson is a list of typed blocks (text, check, trace, order, fill, match, reveal) rendered by one player component. The model writes them as structured output; anything it returns is validated before it is saved, and published lessons are validated again on the server because other students' browsers render them.
 - **AI**: OpenAI Node SDK (Responses API), default model `gpt-6.1-sol`; structured outputs (Zod) for course maps, interactive lessons, questions and grading; streaming for written lessons and the tutor; the built-in web search tool to find a course's public syllabus when the student has none. Change the model with `HONEYCOMB_MODEL`.
@@ -83,7 +83,7 @@ Current build:
 Still to build:
 
 - Email verification, password reset, and verifying that an instructor account belongs to the instructor of record (Georgia Tech SSO is the real answer).
-- A managed Postgres database and object storage for a hosted deployment; rate limits that work across processes.
+- Object storage for uploads; rate limits that work across server instances.
 - Uploading slides and past exams, with answers that cite the page.
 - Pushing a class update to students who already joined, and merging it with their progress.
 - A second-pass check of every generated lesson and question, and a flag button for students.

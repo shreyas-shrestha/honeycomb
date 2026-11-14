@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { requireUser } from "@/lib/server/auth";
 import { parseBody } from "@/lib/server/body";
-import { db } from "@/lib/server/db";
+import { one, run } from "@/lib/server/db";
 
 const MAX_STATE_BYTES = 4_000_000;
 
@@ -17,12 +17,10 @@ interface Row {
   data: string;
 }
 
-const read = (userId: string) => db().prepare("SELECT rev, data FROM user_state WHERE user_id = ?").get(userId) as Row | undefined;
-
 export async function GET(req: Request) {
   const auth = await requireUser(req);
   if (!auth.ok) return auth.response;
-  const row = read(auth.user.id);
+  const row = await one<Row>("SELECT rev, data FROM user_state WHERE user_id = ?", auth.user.id);
   return Response.json({ rev: row?.rev ?? 0, data: row ? (JSON.parse(row.data) as unknown) : null }, { headers: { "Cache-Control": "private, no-store" } });
 }
 
@@ -31,17 +29,15 @@ export async function PUT(req: Request) {
   if (!auth.ok) return auth.response;
   const body = await parseBody(req, Body, MAX_STATE_BYTES);
   if (!body.ok) return body.response;
-  if (body.data.userId !== auth.user.id) return Response.json({ error: "You are signed in as a different account." }, { status: 401 });
+  const { userId, baseRev, data } = body.data;
+  if (userId !== auth.user.id) return Response.json({ error: "You are signed in as a different account." }, { status: 401 });
 
-  const save = db().transaction((userId: string, baseRev: number, data: string) => {
-    const current = read(userId)?.rev ?? 0;
-    if (current !== baseRev) return null;
-    db()
-      .prepare("INSERT INTO user_state (user_id, rev, data) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET rev = excluded.rev, data = excluded.data")
-      .run(userId, current + 1, data);
-    return current + 1;
-  });
-  const rev = save(auth.user.id, body.data.baseRev, JSON.stringify(body.data.data));
-  if (rev === null) return Response.json({ error: "Your progress changed in another tab or device." }, { status: 409 });
-  return Response.json({ rev });
+  // Each branch is one statement, so the revision check and the write cannot be split by another save.
+  const json = JSON.stringify(data);
+  const changed =
+    baseRev === 0
+      ? await run("INSERT INTO user_state (user_id, rev, data) VALUES (?, 1, ?) ON CONFLICT(user_id) DO NOTHING", userId, json)
+      : await run("UPDATE user_state SET rev = rev + 1, data = ? WHERE user_id = ? AND rev = ?", json, userId, baseRev);
+  if (changed === 0) return Response.json({ error: "Your progress changed in another tab or device." }, { status: 409 });
+  return Response.json({ rev: baseRev + 1 });
 }

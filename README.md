@@ -26,6 +26,17 @@ Put your OpenAI API key in `.env.local` and restart the dev server. The default 
 
 Accounts, sessions, saved progress and classes live in a SQLite file at `data/honeycomb.db`, created on first run. Set `HONEYCOMB_DB` to move it.
 
+## Deploy on Vercel
+
+Vercel's servers have no lasting disk, so a deployment needs a hosted database. The app uses libSQL, which is SQLite-compatible, so the hosted version is a Turso database and no SQL changes.
+
+1. Create a database at https://turso.tech and copy its URL and an auth token.
+2. Import this repository at https://vercel.com/new.
+3. In the Vercel project's environment variables set `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `OPENAI_API_KEY`, and `TRUST_PROXY=1`.
+4. Deploy. The tables are created on the first request.
+
+Without `OPENAI_API_KEY` the deployed site still runs: accounts, the sample course, the Studio's hand-written steps and classes all work, and the AI features say they are off.
+
 ## What is in it
 
 | Part | What it does |
@@ -59,7 +70,6 @@ Accounts, sessions, saved progress and classes live in a SQLite file at `data/ho
 
 - No email verification or password reset, and instructor accounts are self-declared.
 - Rate limits are kept in memory, so they assume a single server process.
-- SQLite on local disk suits one machine. A hosted deployment needs a managed database.
 - Students who already joined a class get later updates only by entering the code again.
 - The tutor rules follow a student's class membership on the server, but a student who edits their requests to name a different course gets the default rules. No setting can stop a student from using another AI tool.
 - Signing in does not end sessions on other devices, and sign-up reveals whether an email already has an account.
