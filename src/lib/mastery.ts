@@ -1,7 +1,15 @@
 import { createEmptyCard, fsrs, generatorParameters, Rating, type Card, type Grade } from "ts-fsrs";
-import { EMPTY_TOPIC_STATE, type Course, type Exam, type StoredCard, type Topic, type TopicState } from "./types";
+import { EMPTY_TOPIC_STATE, PASS_SCORE, type Course, type Exam, type StoredCard, type Topic, type TopicState } from "./types";
 
-const scheduler = fsrs(generatorParameters({ enable_fuzz: false, request_retention: 0.9 }));
+// Long-term scheduling only: the first interval is in days. The library's
+// default minute-level learning steps would mark a topic due again mid-session.
+const scheduler = fsrs(
+  generatorParameters({ enable_fuzz: false, request_retention: 0.9, enable_short_term: false, learning_steps: [], relearning_steps: [] }),
+);
+
+const RESCHEDULE_GAP_MS = 12 * 60 * 60 * 1000;
+const PREREQ_READY = 0.5;
+export const CALIBRATION_NOTICE = 0.15;
 
 function revive(card: StoredCard): Card {
   return {
@@ -18,23 +26,31 @@ function store(card: Card): StoredCard {
 // Confidence is asked before the answer is revealed: 1 guessing, 2 fairly sure, 3 certain.
 function rating(score: number, confidence: number): Grade {
   if (score < 0.5) return Rating.Again;
-  if (score < 0.8 || confidence <= 1) return Rating.Hard;
+  if (score < PASS_SCORE || confidence <= 1) return Rating.Hard;
   return confidence >= 3 ? Rating.Easy : Rating.Good;
 }
 
-export function recordAttempt(prev: TopicState | undefined, score: number, confidence: number, now = new Date()): TopicState {
+// Records one answer. Pass confidence null for a teach-back, where no confidence
+// was asked: it moves mastery but stays out of the calibration and answer counts.
+export function recordAttempt(prev: TopicState | undefined, score: number, confidence: number | null, now = new Date()): TopicState {
   const s = prev ?? EMPTY_TOPIC_STATE;
-  const card = s.card ? revive(s.card) : createEmptyCard(now);
-  const next = scheduler.next(card, now, rating(score, confidence)).card;
+  // A session asks several questions on one topic within minutes. Only the
+  // first answer of a sitting moves the review date; the rest move mastery.
+  const last = s.card?.last_review ? new Date(s.card.last_review).getTime() : null;
+  const reschedule = last === null || now.getTime() - last > RESCHEDULE_GAP_MS;
+  const card = reschedule
+    ? store(scheduler.next(s.card ? revive(s.card) : createEmptyCard(now), now, rating(score, confidence ?? 2)).card)
+    : s.card;
   // A confident wrong answer moves mastery down harder than a hesitant one.
-  const rate = score < 0.5 && confidence >= 3 ? 0.5 : 0.35;
+  const rate = score < 0.5 && confidence === 3 ? 0.5 : 0.35;
+  const mastery = Math.min(1, Math.max(0, s.mastery + rate * (score - s.mastery)));
+  if (confidence === null) return { ...s, mastery, card };
   return {
     ...s,
-    mastery: Math.min(1, Math.max(0, s.mastery + rate * (score - s.mastery))),
+    mastery,
+    card,
     attempts: s.attempts + 1,
-    correct: s.correct + (score >= 0.8 ? 1 : 0),
-    card: store(next),
-    lastSeen: now.toISOString(),
+    correct: s.correct + (score >= PASS_SCORE ? 1 : 0),
     calibration: [...s.calibration, { confidence, score }].slice(-30),
   };
 }
@@ -55,14 +71,24 @@ export function isDue(s: TopicState | undefined, now = new Date()): boolean {
   return Boolean(s?.card && new Date(s.card.due) <= now);
 }
 
+export function localISO(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+// Whole calendar days in the learner's local time: an exam tomorrow is 1 day away at any hour.
 export function daysUntil(date: string | null, now = new Date()): number | null {
   if (!date) return null;
-  // Whole calendar days in the learner's local time: an exam tomorrow is 1 day away at any hour.
   const d = new Date(date.length === 10 ? `${date}T00:00:00` : date);
   if (Number.isNaN(d.getTime())) return null;
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   return Math.round((day.getTime() - today.getTime()) / 86_400_000);
+}
+
+// "today", "tomorrow", "in 9 days"
+export function inDays(days: number): string {
+  return days === 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`;
 }
 
 export function nextExam(course: Course, now = new Date()): Exam | null {
@@ -73,17 +99,25 @@ export function nextExam(course: Course, now = new Date()): Exam | null {
   return upcoming[0]?.e ?? null;
 }
 
-export function examReadiness(course: Course, exam: Exam, states: Record<string, TopicState>, now = new Date()): number {
-  const covered = course.topics.filter((t) => t.examIds.includes(exam.id));
-  const total = covered.reduce((a, t) => a + t.weight, 0);
+function weightedReadiness(topics: Topic[], states: Record<string, TopicState>, now: Date): number {
+  const total = topics.reduce((a, t) => a + t.weight, 0);
   if (!total) return 0;
-  return covered.reduce((a, t) => a + t.weight * readiness(states[t.id], now), 0) / total;
+  return topics.reduce((a, t) => a + t.weight * readiness(states[t.id], now), 0) / total;
+}
+
+export function examReadiness(course: Course, exam: Exam, states: Record<string, TopicState>, now = new Date()): number {
+  return weightedReadiness(course.topics.filter((t) => t.examIds.includes(exam.id)), states, now);
 }
 
 export function courseReadiness(course: Course, states: Record<string, TopicState>, now = new Date()): number {
-  const total = course.topics.reduce((a, t) => a + t.weight, 0);
-  if (!total) return 0;
-  return course.topics.reduce((a, t) => a + t.weight * readiness(states[t.id], now), 0) / total;
+  return weightedReadiness(course.topics, states, now);
+}
+
+// Prerequisites of a topic that the learner has not yet half learned.
+export function weakPrereqs(course: Course, topic: Topic, states: Record<string, TopicState>): Topic[] {
+  return topic.prereqs
+    .map((id) => course.topics.find((t) => t.id === id))
+    .filter((p): p is Topic => p !== undefined && (states[p.id]?.mastery ?? 0) < PREREQ_READY);
 }
 
 export interface Suggestion {
@@ -98,19 +132,17 @@ export function upNext(course: Course, states: Record<string, TopicState>, limit
   const scored = course.topics.map((topic) => {
     const s = states[topic.id];
     const ready = readiness(s, now);
-    const blockedBy = topic.prereqs
-      .map((id) => course.topics.find((t) => t.id === id))
-      .filter((p): p is Topic => Boolean(p) && (states[p!.id]?.mastery ?? 0) < 0.5);
+    const blocked = weakPrereqs(course, topic, states).length > 0;
     const examDays = topic.examIds
       .map((id) => daysUntil(course.exams.find((e) => e.id === id)?.date ?? null, now))
       .filter((d): d is number => d !== null && d >= 0)
       .sort((a, b) => a - b)[0];
     const urgency = examDays === undefined ? 1 : 1 + 3 / (examDays / 7 + 1);
     const due = isDue(s, now);
-    const priority = (blockedBy.length ? 0.2 : 1) * topic.weight * (1 - ready) * urgency + (due ? 1 : 0);
+    const priority = (blocked ? 0.2 : 1) * topic.weight * (1 - ready) * urgency + (due ? 1 : 0);
     let reason = "Next in the syllabus";
-    if (due) reason = "Due for review before you forget it";
-    else if (examDays !== undefined && examDays <= 14) reason = `On an exam in ${examDays} day${examDays === 1 ? "" : "s"}`;
+    if (due) reason = "Due for review";
+    else if (examDays !== undefined && examDays <= 14) reason = `On an exam ${inDays(examDays)}`;
     else if (s && s.attempts > 0 && s.mastery < 0.6) reason = "Started but still shaky";
     else if (topic.weight >= 3) reason = "Heavily tested";
     return { topic, reason, priority, done: ready >= 0.85 && !due };

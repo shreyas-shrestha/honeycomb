@@ -1,4 +1,4 @@
-# Hive
+# Honeycomb
 
 A learning harness for Georgia Tech courses: give it your syllabus and it builds a study plan that teaches each topic, makes you try before it explains, and schedules review before you forget. Independent student project, not affiliated with or endorsed by Georgia Tech.
 
@@ -11,7 +11,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000 and choose **Load the demo course** to try a sample CS 1332 course with no setup.
+Open http://localhost:3000 and choose **Load a sample CS 1332 course** to try it with no setup. Course search works without a key too.
 
 To build courses from your own syllabus and turn on the tutor, generated lessons and AI grading:
 
@@ -19,7 +19,7 @@ To build courses from your own syllabus and turn on the tutor, generated lessons
 cp .env.example .env.local
 ```
 
-Put your Anthropic API key in `.env.local` and restart the dev server.
+Put your OpenAI API key in `.env.local` and restart the dev server. The default model is `gpt-6.1-sol`; set `HONEYCOMB_MODEL` to change it.
 
 ## Layout
 
@@ -30,7 +30,9 @@ Put your Anthropic API key in `.env.local` and restart the dev server.
 | `src/app/learn` | A session: try first, learn, practice, teach back, with the tutor |
 | `src/app/review` | Spaced review queue across courses |
 | `src/app/teach` | Instructor settings |
-| `src/app/api/*` | Model calls: course map, lesson, questions, grading, tutor |
+| `src/app/api/*` | Model calls (course map, lesson, questions, grading, tutor) and catalog search |
+| `src/lib/server/ai.ts` | OpenAI client: structured output, streaming, web search |
+| `src/lib/server/catalog.ts` | Georgia Tech course data from the GT Scheduler crawler |
 | `src/lib/mastery.ts` | Mastery, FSRS scheduling, exam readiness, what to study next |
 | `src/lib/modes.ts` | The five explanation formats |
 | `src/lib/store.ts` | Browser-local state |

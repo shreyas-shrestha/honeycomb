@@ -1,6 +1,6 @@
-# Hive: a learning harness for Georgia Tech courses
+# Honeycomb: a learning harness for Georgia Tech courses
 
-Working name "Hive". Independent student project, not affiliated with or endorsed by Georgia Tech (see [Branding](#branding-and-legal)).
+Working name "Honeycomb". Independent student project, not affiliated with or endorsed by Georgia Tech (see [Branding](#branding-and-legal)).
 
 ## 1. The bet
 
@@ -8,9 +8,9 @@ Students already learn with Claude and ChatGPT, but a chat box is a poor harness
 
 Wondering (YC S26) shows the "Duolingo for anything" shape works as a product, but it is built for curious adults: 3-minute lessons from a topic or a link, content generated from model knowledge, streaks and XP. It has no syllabus ingestion, no exam dates, no mastery model, and no instructor side.
 
-Hive's unit is **the course you are enrolled in**, with its syllabus, its exam dates, its professor's emphasis and its AI policy. Narrowing to Georgia Tech is what makes that possible: a few dozen courses cover most of the pain (CS 1332, CS 2110, MATH 1554, PHYS 2212), and each one runs every term with a similar structure.
+Honeycomb's unit is **the course you are enrolled in**, with its syllabus, its exam dates, its professor's emphasis and its AI policy. Narrowing to Georgia Tech is what makes that possible: a few dozen courses cover most of the pain (CS 1332, CS 2110, MATH 1554, PHYS 2212), and each one runs every term with a similar structure.
 
-| | Chat (Claude, ChatGPT) | Wondering | NotebookLM / StudyFetch | Hive |
+| | Chat (Claude, ChatGPT) | Wondering | NotebookLM / StudyFetch | Honeycomb |
 |---|---|---|---|---|
 | Unit | A conversation | A topic | A document | Your course section |
 | Knows your syllabus and exam dates | No | No | Partly | Yes |
@@ -28,9 +28,9 @@ Sources are listed in section 9. Rules marked ✅ are in the current build.
 3. ✅ **Retrieval is the default activity.** Every session opens with a question before the lesson and closes with practice (Roediger & Karpicke 2006; Dunlosky 2013 rates practice testing and spacing "high utility", rereading and summarising "low").
 4. ✅ **Spaced review with FSRS** (`ts-fsrs`, target retention 0.9). FSRS predicts recall better than older schedulers on about 10k Anki collections.
 5. ✅ **Prerequisite graph.** Topics wait until prerequisites are half learned; the planner sends you back to the weak prerequisite.
-6. ✅ **No diagnosed "learning styles".** Matching instruction to a visual/auditory/kinesthetic type is not supported (Pashler 2008; Clinton-Lisell 2024). What is supported: words plus a relevant picture for everyone, format chosen by content, adapting to prior knowledge, and learner choice for motivation. Hive offers five **explanation modes** the learner picks per topic (worked example, question-led, picture it, derive it, fast recap).
+6. ✅ **No diagnosed "learning styles".** Matching instruction to a visual/auditory/kinesthetic type is not supported (Pashler 2008; Clinton-Lisell 2024). What is supported: words plus a relevant picture for everyone, format chosen by content, adapting to prior knowledge, and learner choice for motivation. Honeycomb offers five **explanation modes** the learner picks per topic (worked example, question-led, picture it, derive it, fast recap).
 7. ✅ **Teach it back.** Each topic ends with explaining it in your own words, graded against the topic's objectives (self-explanation and learning-by-teaching literature).
-8. ✅ **Confidence before feedback.** You rate how sure you are before seeing the answer; Hive shows your calibration, because feeling of learning is a poor guide to actual learning (Deslauriers 2019).
+8. ✅ **Confidence before feedback.** You rate how sure you are before seeing the answer; Honeycomb shows your calibration, because feeling of learning is a poor guide to actual learning (Deslauriers 2019).
 9. ✅ **Interleaved review** across topics and courses (Rohrer 2015).
 10. ⬜ **Fade scaffolds by expertise.** Worked examples help novices and hurt experts (Kalyuga 2003). Next: pick the default mode from mastery.
 11. ⬜ **Ground content in the professor's materials**, with citations to the slide or page. Kestin's tutor had expert-written solutions in the prompt; free generation is the main accuracy risk.
@@ -41,7 +41,7 @@ Sources are listed in section 9. Rules marked ✅ are in the current build.
 
 ### Student
 
-1. **Add a course.** Pick the course code, paste or upload the syllabus (PDF). Hive extracts units, topics, prerequisites between topics, exam dates and coverage, grade weights, and the syllabus's AI policy.
+1. **Add a course.** Search the Georgia Tech catalog and pick the course. Paste or upload the syllabus (PDF) and Honeycomb extracts units, topics, prerequisites between topics, exam dates and coverage, grade weights, and the syllabus's AI policy. With no syllabus it searches the web for the course's public syllabus, builds the plan from that, and shows its sources.
 2. **Course map.** Topics grouped by unit with a mastery bar each; readiness for each exam with a countdown; "Up next" with a stated reason ("On an exam in 9 days", "Due for review").
 3. **Session on one topic** (about 15 minutes):
    - *Try first*: one question before any teaching.
@@ -64,7 +64,8 @@ Sources are listed in section 9. Rules marked ✅ are in the current build.
 Current build (prototype):
 
 - **Next.js 16 (App Router), TypeScript, Tailwind 4.** Pages: `/` (courses, add course), `/course` (map), `/learn` (session), `/review`, `/teach` (instructor).
-- **AI**: Anthropic TypeScript SDK, `claude-opus-5-5`, structured outputs (Zod) for course maps, questions and grading; streaming for lessons and the tutor. Server-side refusal fallback is enabled. Change the model with `HIVE_MODEL`.
+- **AI**: OpenAI Node SDK (Responses API), default model `gpt-6.1-sol`; structured outputs (Zod) for course maps, questions and grading; streaming for lessons and the tutor; the built-in web search tool to find a course's public syllabus when the student has none. Change the model with `HONEYCOMB_MODEL` (`gpt-6-astra` is stronger at about five times the price).
+- **Course lookup**: live search over the public Georgia Tech catalog (title, description, prerequisites, this term's instructors), fetched server-side and cached in memory.
 - **State**: browser `localStorage` behind one store module (`src/lib/store.ts`). No accounts yet.
 - **Learning model** (`src/lib/mastery.ts`): per-topic mastery (moving average of scores, penalising confident errors), FSRS card per topic, readiness = mastery × predicted recall, exam readiness = weighted mean over covered topics.
 - **Demo mode**: without an API key the app serves a hand-written CS 1332 course, and free-response answers are self-graded against a rubric.
@@ -79,7 +80,7 @@ Target (after validation):
 
 ## 5. Course data
 
-- **Catalog**: GT Scheduler's crawler publishes per-term JSON at `https://gt-scheduler.github.io/crawler-v2/<term>.json` (`index.json` lists terms): course code, title, description, prerequisite tree, sections, instructors. The crawler code is AGPL-3.0 and the data licence is unstated, so consume the published JSON, credit it, and ask the maintainers (Bits of Good) before depending on it. v0 ships a 24-course starter list instead.
+- **Catalog**: GT Scheduler's crawler publishes per-term JSON at `https://gt-scheduler.github.io/crawler-v2/<term>.json` (`index.json` lists terms): course code, title, description, prerequisite tree, sections, instructors. The crawler code is AGPL-3.0 and the data licence is unstated, so consume the published JSON, credit it, and ask the maintainers (Bits of Good) before depending on it. The app reads the latest term's file for its course search.
 - **Syllabus**: uploaded by the student. This is the dependable path.
 - **Canvas**: the API can read courses, syllabus body, modules, files and assignments. Instructure's API policy forbids asking users to paste personal tokens into a third-party app, so real integration means OAuth with a developer key from Georgia Tech, or LTI 1.3. GT's LTI process requires 1EdTech certification, security and accessibility review, and a request at least three months before the term. That is a year-two goal, reached through a faculty sponsor.
 - **Course Critique**: grade distributions; no supported public API. Skip for now.
@@ -88,7 +89,7 @@ Target (after validation):
 
 | Phase | Goal | Scope |
 |---|---|---|
-| **0. Prototype** (this repo) | Prove the loop feels better than chat | Syllabus to course map, sessions with five modes, FSRS review, tutor guardrails, instructor policy, demo course |
+| **0. Prototype** (this repo) | Prove the loop feels better than chat | Catalog search, syllabus or web to course map, sessions with five modes, FSRS review, tutor guardrails, instructor policy, demo course |
 | **1. Private beta, 4 to 6 weeks** | 30 students in 2 courses use it through one exam | Accounts, database, upload slides and past exams with cited answers, pre-generated and checked question pools for CS 1332 and MATH 1554, exam-cram plan, mobile layout |
 | **2. One semester** | Evidence it works | Compare exam scores of users vs matched non-users with a professor's cooperation; exam-style mock exams with rubric grading; study groups sharing a course map (never files); per-user FSRS fitting |
 | **3. Instructor pilot** | 2 to 3 faculty adopt it | Instructor-verified content, real class insights with consent, Canvas via LTI 1.3, OIT AI-tool review |
@@ -99,7 +100,7 @@ Success measure for phases 1 and 2: delayed performance (exam scores, unassisted
 ## 7. Risks
 
 - **Wrong content on high-stakes material.** Mitigate with grounding in uploaded materials, citations, second-pass checking, flagging, and instructor-verified pools for the top courses.
-- **Academic integrity.** Per-course help levels, off-limits lists, attempt-first, and showing the syllabus's AI policy inside the app. GT guidance has instructors set AI rules per syllabus and treats undisclosed use as a possible Honor Code issue; Hive should make disclosure easy (export of what help was given).
+- **Academic integrity.** Per-course help levels, off-limits lists, attempt-first, and showing the syllabus's AI policy inside the app. GT guidance has instructors set AI rules per syllabus and treats undisclosed use as a possible Honor Code issue; Honeycomb should make disclosure easy (export of what help was given).
 - **Course materials are copyrighted by faculty.** Uploads stay private to the uploader; no cross-user sharing of files; takedown path. This is the Course Hero failure mode and GT names it explicitly.
 - **Student data.** Students volunteering their own data is one footing; instructor-required use triggers FERPA "school official" contracts and OIT review. Collect the minimum, never GTID or grades from official systems, until there is an agreement.
 - **Cost.** A full session is several model calls. Cache lessons and question pools per course section so the hundredth CS 1332 student costs little.
@@ -109,7 +110,7 @@ Success measure for phases 1 and 2: delayed performance (exam scores, unassisted
 
 Georgia Tech's registered marks include "Georgia Tech", "Buzz", "Yellow Jackets", "Ramblin' Wreck" and the interlocking GT, and it claims "Tech", "Jackets" and the gold, white and navy colour scheme at common law. Use on personal or commercial sites needs written approval, except factual statements.
 
-So: the product name, domain and logo contain none of those; the palette is honey and ink, not Tech Gold and navy; the copy says "built for Georgia Tech courses" as a statement of fact, with a non-affiliation line in the footer. Contact gtlicensing@gatech.edu before any use beyond that.
+So: the product name, domain and logo contain none of those; the palette is honey on warm cream with brown ink, not Tech Gold and navy; the copy says "built for Georgia Tech courses" as a statement of fact, with a non-affiliation line in the footer. Contact gtlicensing@gatech.edu before any use beyond that.
 
 ## 9. Sources
 

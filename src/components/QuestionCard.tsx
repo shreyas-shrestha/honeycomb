@@ -1,11 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { postJSON } from "@/lib/client";
-import type { TopicContext } from "@/lib/server/ai";
-import type { Grade, Question } from "@/lib/types";
+import { useEffect, useRef, useState } from "react";
+import { errorText, postJSON } from "@/lib/client";
+import type { Grade, Question, TopicContext } from "@/lib/types";
 import { Markdown } from "./Markdown";
-import { Notice } from "./ui";
+import { Notice, RubricCheck, VerdictLine } from "./ui";
 
 const CONFIDENCE = [
   { v: 1, label: "Guessing" },
@@ -17,7 +16,7 @@ interface Props {
   question: Question;
   context: TopicContext;
   aiOn: boolean;
-  countsNote?: string;
+  eyebrow?: string;
   nextLabel?: string;
   onResult: (score: number, confidence: number) => void;
   onNext: () => void;
@@ -26,37 +25,37 @@ interface Props {
 
 // One practice item. The learner commits to an answer and a confidence level
 // before anything is revealed. Mount with key={question.id} to reset.
-export function QuestionCard({ question: q, context, aiOn, countsNote, nextLabel = "Next", onResult, onNext, onAnswered }: Props) {
+export function QuestionCard({ question: q, context, aiOn, eyebrow, nextLabel = "Next", onResult, onNext, onAnswered }: Props) {
   const [choice, setChoice] = useState<number | null>(null);
   const [text, setText] = useState("");
   const [confidence, setConfidence] = useState<number | null>(null);
   const [phase, setPhase] = useState<"answer" | "grading" | "self" | "done">("answer");
   const [grade, setGrade] = useState<Grade | null>(null);
-  const [checked, setChecked] = useState<boolean[]>(() => q.rubric.map(() => false));
   const [error, setError] = useState("");
+  // Grading can outlive the card (the learner moves on); a late result must not be recorded.
+  const live = useRef(true);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
 
   const hasAnswer = q.kind === "mcq" ? choice !== null : text.trim().length > 0;
   const revealed = phase === "self" || phase === "done";
 
-  function finish(g: Grade) {
+  function finish(g: Grade, sure: number) {
     setGrade(g);
     setPhase("done");
-    onResult(g.score, confidence ?? 2);
+    onResult(g.score, sure);
   }
 
   async function check() {
     if (!hasAnswer || confidence === null) return;
     setError("");
     onAnswered?.();
-    if (q.kind === "mcq") {
-      const right = choice === q.answerIndex;
-      finish({ score: right ? 1 : 0, verdict: right ? "correct" : "incorrect", feedback: "", missed: [] });
-      return;
-    }
-    if (!aiOn) {
-      setPhase("self");
-      return;
-    }
+    if (q.kind === "mcq") return finish({ score: choice === q.answerIndex ? 1 : 0, feedback: "", missed: [] }, confidence);
+    if (!aiOn) return setPhase("self");
     setPhase("grading");
     try {
       const { grade: g } = await postJSON<{ grade: Grade }>("/api/grade", {
@@ -66,22 +65,12 @@ export function QuestionCard({ question: q, context, aiOn, countsNote, nextLabel
         solution: q.solution,
         rubric: q.rubric,
       });
-      finish(g);
+      if (live.current) finish(g, confidence);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Grading failed.");
+      if (!live.current) return;
+      setError(errorText(e, "Grading failed."));
       setPhase("self");
     }
-  }
-
-  function selfGrade() {
-    const hit = checked.filter(Boolean).length;
-    const score = q.rubric.length ? hit / q.rubric.length : 0;
-    finish({
-      score,
-      verdict: score >= 0.8 ? "correct" : score >= 0.4 ? "partial" : "incorrect",
-      feedback: "",
-      missed: q.rubric.filter((_, i) => !checked[i]),
-    });
   }
 
   const overconfident = grade && grade.score < 0.5 && confidence === 3;
@@ -89,30 +78,36 @@ export function QuestionCard({ question: q, context, aiOn, countsNote, nextLabel
 
   return (
     <div className="card p-5 sm:p-6">
-      {countsNote && <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-honey-deep">{countsNote}</p>}
+      {eyebrow && <p className="eyebrow mb-3">{eyebrow}</p>}
       <Markdown>{q.prompt}</Markdown>
 
       {q.kind === "mcq" ? (
         <div className="mt-4 grid gap-2" role="radiogroup" aria-label="Answer choices">
           {q.choices.map((c, i) => {
+            const letter = String.fromCharCode(65 + i);
             const state = phase === "done" ? (i === q.answerIndex ? "right" : i === choice ? "wrong" : undefined) : undefined;
+            const badge = state === "right" ? "border-leaf bg-leaf text-paper" : state === "wrong" ? "border-rose bg-rose text-paper" : "border-line";
             return (
               <button
                 key={i}
                 type="button"
                 role="radio"
                 aria-checked={choice === i}
-                aria-label={`${String.fromCharCode(65 + i)}: ${c.replace(/[$\\`]/g, "")}`}
+                aria-label={`${letter}: ${c.replace(/[$\\`]/g, "")}`}
                 disabled={phase !== "answer"}
-                data-on={choice === i}
                 data-state={state}
                 className="choice"
                 onClick={() => setChoice(i)}
               >
-                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line text-xs font-semibold">
-                  {String.fromCharCode(65 + i)}
+                <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${badge}`}>
+                  {state === "right" ? "✓" : state === "wrong" ? "✕" : letter}
                 </span>
                 <Markdown className="min-w-0 flex-1">{c}</Markdown>
+                {state && (
+                  <span className="shrink-0 self-center text-xs font-semibold">
+                    {state === "right" ? "Correct answer" : "Your answer"}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -132,78 +127,57 @@ export function QuestionCard({ question: q, context, aiOn, countsNote, nextLabel
       )}
 
       {phase === "answer" && (
-        <div className="mt-5 flex flex-wrap items-center gap-3">
-          <span className="text-sm text-muted">How sure are you?</span>
-          <div className="flex gap-1.5" role="radiogroup" aria-label="Confidence">
-            {CONFIDENCE.map((c) => (
-              <button
-                key={c.v}
-                type="button"
-                role="radio"
-                aria-checked={confidence === c.v}
-                className={`btn !py-1.5 !text-xs ${confidence === c.v ? "btn-primary" : ""}`}
-                onClick={() => setConfidence(c.v)}
-              >
-                {c.label}
-              </button>
-            ))}
+        <div className="mt-5 grid gap-4 sm:flex sm:flex-wrap sm:items-center">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <span className="text-sm text-muted" id={`c-${q.id}`}>How sure are you?</span>
+            <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-labelledby={`c-${q.id}`}>
+              {CONFIDENCE.map((c) => (
+                <button key={c.v} type="button" role="radio" aria-checked={confidence === c.v} className="chip" onClick={() => setConfidence(c.v)}>
+                  {c.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <button type="button" className="btn btn-honey ml-auto" disabled={!hasAnswer || confidence === null} onClick={check}>
+          <button type="button" className="btn btn-honey w-full sm:ml-auto sm:w-auto" disabled={!hasAnswer || confidence === null} onClick={check}>
             Check answer
           </button>
         </div>
       )}
 
       {phase === "grading" && <p className="mt-5 text-sm text-muted" role="status">Reading your answer…</p>}
-      {error && <div className="mt-4"><Notice tone="rose">{error} You can grade it yourself below.</Notice></div>}
+      {error && <div className="mt-4"><Notice tone="rose">{error} You can score it yourself below.</Notice></div>}
 
       {revealed && (
         <div className="mt-5 space-y-4 border-t border-line pt-5">
-          {phase === "done" && grade && (
-            <p className={`text-sm font-bold ${grade.verdict === "correct" ? "text-leaf" : grade.verdict === "partial" ? "text-honey-deep" : "text-rose"}`} role="status">
-              {grade.verdict === "correct" ? "Correct" : grade.verdict === "partial" ? `Partly there (${Math.round(grade.score * 100)}%)` : "Not yet"}
-            </p>
-          )}
+          {phase === "done" && grade && <VerdictLine score={grade.score} labels={{ correct: "Correct", incorrect: "Not yet" }} />}
           {grade?.feedback && <Markdown>{grade.feedback}</Markdown>}
           {overconfident && <Notice tone="rose">You were certain and it was wrong. That is the most useful kind of miss: read the solution closely, because this is a belief to fix, not a gap to fill.</Notice>}
           {underconfident && <Notice tone="leaf">You said you were guessing and got it right. You may know this better than you think.</Notice>}
           <div>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Solution</h3>
+            <h3 className="eyebrow">Solution</h3>
             <Markdown className="mt-1.5">{q.solution}</Markdown>
           </div>
 
           {phase === "self" && (
-            <div>
-              <h3 className="text-sm font-semibold">Compare your answer with the solution. Which points did you make?</h3>
-              <div className="mt-2 grid gap-1.5">
-                {q.rubric.map((r, i) => (
-                  <label key={i} className="flex cursor-pointer items-start gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      className="mt-1 accent-[var(--leaf)]"
-                      checked={checked[i]}
-                      onChange={(e) => setChecked((c) => c.map((x, j) => (j === i ? e.target.checked : x)))}
-                    />
-                    <span>{r}</span>
-                  </label>
-                ))}
-              </div>
-              <button type="button" className="btn btn-honey mt-3" onClick={selfGrade}>Save my score</button>
-            </div>
+            <RubricCheck
+              prompt="Compare your answer with the solution. Which points did you make?"
+              items={q.rubric}
+              onSave={(score, missed) => finish({ score, feedback: "", missed }, confidence ?? 2)}
+            />
           )}
 
           {phase === "done" && grade && grade.missed.length > 0 && (
             <div>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">What was missing</h3>
-              <ul className="mt-1.5 list-disc pl-5 text-sm">
-                {grade.missed.map((m, i) => <li key={i}>{m}</li>)}
+              <h3 className="eyebrow">What was missing</h3>
+              <ul className="mt-1.5 grid gap-1 pl-5 text-sm">
+                {grade.missed.map((m, i) => <li key={i} className="list-disc"><Markdown className="prose-sm">{m}</Markdown></li>)}
               </ul>
             </div>
           )}
 
           {phase === "done" && (
             <div className="flex justify-end">
-              <button type="button" className="btn btn-primary" onClick={onNext}>{nextLabel}</button>
+              <button type="button" className="btn btn-honey w-full sm:w-auto" onClick={onNext}>{nextLabel}</button>
             </div>
           )}
         </div>

@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { useState } from "react";
 import { QuestionCard } from "@/components/QuestionCard";
-import { Empty } from "@/components/ui";
-import { topicContext, useAiStatus } from "@/lib/client";
+import { Empty, Loading } from "@/components/ui";
+import { dueLabel, topicContext, useAiStatus } from "@/lib/client";
 import { isDue } from "@/lib/mastery";
 import { actions, getState, useHydrated } from "@/lib/store";
-import type { Course, Question, Topic } from "@/lib/types";
+import { PASS_SCORE, type Course, type Question, type Topic } from "@/lib/types";
 
 interface Item {
   course: Course;
@@ -15,8 +15,10 @@ interface Item {
   question: Question;
 }
 
+const MAX_ITEMS = 20;
+
 // Built once when the page opens so the queue does not reshuffle as answers are
-// recorded. Topics are interleaved across courses, most overdue first.
+// recorded. Topics from every course are mixed, most overdue first.
 function buildQueue(): { items: Item[]; nextDue: Date | null } {
   const s = getState();
   const items: (Item & { due: number })[] = [];
@@ -32,7 +34,7 @@ function buildQueue(): { items: Item[]; nextDue: Date | null } {
     }
   }
   items.sort((a, b) => a.due - b.due);
-  return { items: items.slice(0, 20), nextDue };
+  return { items: items.slice(0, MAX_ITEMS), nextDue };
 }
 
 function Queue({ aiOn }: { aiOn: boolean }) {
@@ -45,20 +47,20 @@ function Queue({ aiOn }: { aiOn: boolean }) {
       <Empty title="Nothing to review right now">
         <p>
           {nextDue
-            ? `Your next review is due ${nextDue.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}. Reviews are spaced so each one lands just before you would forget.`
+            ? `Your next review is due ${dueLabel(nextDue)}. Reviews are spaced so each one lands just before you would forget.`
             : "Finish a study session and its topic will come back here on a schedule."}
         </p>
-        <Link href="/course" className="btn btn-primary mt-4">Study something new</Link>
+        <Link href="/course" className="btn btn-honey mt-4">Open study plan</Link>
       </Empty>
     );
   }
 
   if (i >= items.length) {
-    const right = scores.filter((s) => s >= 0.8).length;
+    const right = scores.filter((s) => s >= PASS_SCORE).length;
     return (
       <Empty title="Review complete">
         <p>{right} of {items.length} recalled correctly. Missed topics come back sooner; the rest move further out.</p>
-        <Link href="/course" className="btn btn-primary mt-4">Back to study plan</Link>
+        <Link href="/course" className="btn btn-honey mt-4">Open study plan</Link>
       </Empty>
     );
   }
@@ -67,15 +69,15 @@ function Queue({ aiOn }: { aiOn: boolean }) {
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <header>
-        <h1 className="text-2xl font-bold tracking-tight">Review</h1>
-        <p className="text-sm text-muted">{i + 1} of {items.length} · mixed across your topics, because switching between them is what you will do on the exam.</p>
+        <h1 className="title">Review</h1>
+        <p className="mt-1.5 text-sm leading-relaxed text-muted"><span className="tabular-nums">{i + 1} of {items.length}</span> · topics are mixed, because switching between them is what the exam asks of you.</p>
       </header>
-      <p className="text-xs font-semibold uppercase tracking-wide text-honey-deep">{course.code} · {topic.title}</p>
       <QuestionCard
         key={`${question.id}:${i}`}
         question={question}
         context={topicContext(course, topic)}
         aiOn={aiOn}
+        eyebrow={`${course.code} · ${topic.title}`}
         nextLabel={i + 1 < items.length ? "Next" : "Finish"}
         onResult={(score, confidence) => {
           actions.attempt(topic.id, score, confidence);
@@ -93,6 +95,6 @@ function Queue({ aiOn }: { aiOn: boolean }) {
 export default function ReviewPage() {
   const hydrated = useHydrated();
   const aiOn = useAiStatus();
-  if (!hydrated || aiOn === null) return <p className="text-sm text-muted">Loading…</p>;
+  if (!hydrated || aiOn === null) return <Loading />;
   return <Queue aiOn={aiOn} />;
 }

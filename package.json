@@ -1,5 +1,5 @@
 {
-  "name": "campus-solutions",
+  "name": "honeycomb",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,9 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.8.0",
     "katex": "^0.19.1",
     "next": "16.4.6",
+    "openai": "^7.57.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-markdown": "^10.1.0",

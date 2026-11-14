@@ -1,12 +1,17 @@
+import { localISO } from "./mastery";
 import type { Course, Question, Topic } from "./types";
 
 // A hand-written sample so the app is usable without an API key. Dates are set
 // relative to the day the demo is loaded so the exam countdown always has
 // something to show.
-const ID = "demo-cs1332";
+export const DEMO_ID = "demo-cs1332";
+const ID = DEMO_ID;
 const t = (k: string) => `${ID}.${k}`;
-const iso = (d: Date) => d.toISOString().slice(0, 10);
-const inDays = (n: number) => iso(new Date(Date.now() + n * 86_400_000));
+const inDays = (n: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return localISO(d);
+};
 
 export function buildDemoCourse(): { course: Course; questions: Record<string, Question[]>; lessons: Record<string, string> } {
   const e1 = `${ID}.exam.1`;
@@ -27,28 +32,27 @@ export function buildDemoCourse(): { course: Course; questions: Record<string, Q
     id: ID,
     code: "CS 1332",
     title: "Data Structures and Algorithms",
-    instructor: "Sample section",
-    term: "Demo",
+    instructor: "",
+    term: "",
     aiPolicy:
       "Sample policy: AI tools may be used to study concepts. Homework code must be your own, and any AI help on coursework must be disclosed.",
     grading: [
       { name: "Homework", pct: 20 },
-      { name: "Exam 1", pct: 20 },
-      { name: "Exam 2", pct: 20 },
-      { name: "Exam 3", pct: 15 },
-      { name: "Final", pct: 25 },
+      { name: "Exam 1", pct: 25 },
+      { name: "Exam 2", pct: 25 },
+      { name: "Final", pct: 30 },
     ],
     exams: [
-      { id: e1, title: "Exam 1", date: inDays(-20), weightPct: 20 },
-      { id: e2, title: "Exam 2", date: inDays(9), weightPct: 20 },
-      { id: fin, title: "Final exam", date: inDays(27), weightPct: 25 },
+      { id: e1, title: "Exam 1", date: inDays(-20), weightPct: 25 },
+      { id: e2, title: "Exam 2", date: inDays(9), weightPct: 25 },
+      { id: fin, title: "Final exam", date: inDays(27), weightPct: 30 },
     ],
     units: [
       { id: `${ID}.u0`, title: "Foundations", when: "Weeks 1-3" },
       { id: `${ID}.u1`, title: "Trees", when: "Weeks 4-7" },
       { id: `${ID}.u2`, title: "Hashing", when: "Week 8" },
       { id: `${ID}.u3`, title: "Sorting", when: "Weeks 9-10" },
-      { id: `${ID}.u4`, title: "Graphs", when: "Weeks 12-14" },
+      { id: `${ID}.u4`, title: "Graphs", when: "Weeks 11-14" },
     ],
     topics: [
       topic("big-o", 0, "Big-O analysis", "Describing how running time grows with input size.", ["Find the Big-O of loops and nested loops", "Tell worst-case from amortized cost", "Drop constants and lower-order terms correctly"], [], [e1], 3),
@@ -63,7 +67,8 @@ export function buildDemoCourse(): { course: Course; questions: Record<string, Q
       topic("bfs-dfs", 4, "Graph traversal: BFS and DFS", "Visiting every vertex with a queue or a stack.", ["Trace BFS and DFS from a start vertex", "Pick the traversal that fits a problem"], ["stacks-queues"], [], 2),
       topic("dijkstra", 4, "Dijkstra's shortest paths", "Shortest paths from one source using a priority queue.", ["Trace Dijkstra's with a distance map", "Explain why negative edges break it"], ["bfs-dfs", "heaps"], [], 3),
     ],
-    source: "demo",
+    basis: "demo",
+    sources: [],
     createdAt: new Date().toISOString(),
   };
 
@@ -78,7 +83,7 @@ export function buildDemoCourse(): { course: Course; questions: Record<string, Q
   const questions: Record<string, Question[]> = {
     [t("big-o")]: [
       mcq("big-o", "What is the Big-O of this code in terms of `n`?\n\n```java\nfor (int i = 0; i < n; i++) {\n    for (int j = 1; j < n; j *= 2) {\n        count++;\n    }\n}\n```", ["$O(n)$", "$O(n \\log n)$", "$O(n^2)$", "$O(\\log n)$"], 1, "The outer loop runs $n$ times. The inner loop doubles `j` each pass, so it runs about $\\log_2 n$ times. Multiply: $O(n \\log n)$. Choosing $O(n^2)$ comes from assuming every nested loop is quadratic without checking how the inner counter moves.", 2),
-      mcq("big-o", "A function takes $3n^2 + 100\\,n\\log n + 5$ steps. What is its tightest Big-O?", ["$O(n \\log n)$", "$O(100\\,n^2)$", "$O(n^2)$", "$O(n^2 \\log n)$"], 2, "Keep the fastest-growing term and drop its constant. $n^2$ outgrows $n \\log n$ for large $n$ no matter how big the coefficient on the smaller term is, so the answer is $O(n^2)$.", 1),
+      mcq("big-o", "A function takes $3n^2 + 100\\,n\\log n + 5$ steps. What is its tightest Big-O?", ["$O(n \\log n)$", "$O(n^3)$", "$O(n^2)$", "$O(n^2 \\log n)$"], 2, "Keep the fastest-growing term and drop its constant. $n^2$ outgrows $n \\log n$ for large $n$ no matter how big the coefficient on the smaller term is, so the answer is $O(n^2)$.", 1),
       mcq("big-o", "For an ArrayList that doubles its backing array when full, adding to the **back** is:", ["$O(1)$ worst case", "$O(n)$ amortized", "$O(\\log n)$ amortized", "$O(1)$ amortized, $O(n)$ worst case"], 3, "Most adds just write one slot. The occasional add that triggers a resize copies all $n$ elements, so the worst single add is $O(n)$. Spread over all the cheap adds before it, the average is $O(1)$: that is the amortized cost.", 2),
       free("big-o", "An ArrayList that **doubles** when full has amortized $O(1)$ add-to-back. Explain why, and explain why growing by a fixed 10 slots each time would not give the same result.", "A resize copies every element, costing $n$. With doubling, resizes happen at sizes 1, 2, 4, 8, ..., so over $n$ adds the total copying is $1 + 2 + 4 + \\dots + n < 2n$. Total work is under $3n$ for $n$ adds, or $O(1)$ each. With +10 growth a resize happens every 10 adds, copying 10, 20, 30, ... elements, which sums to about $n^2/20$. That is $O(n)$ per add on average.", ["A resize copies all current elements, costing O(n)", "With doubling, total copy work over n adds is a geometric sum bounded by about 2n", "So the average cost per add is constant", "Fixed-size growth resizes every constant number of adds, making total copy work O(n²) and amortized cost O(n)"]),
     ],
@@ -104,8 +109,6 @@ export function buildDemoCourse(): { course: Course; questions: Record<string, Q
 
   const lessons: Record<string, string> = {
     [`${t("big-o")}:walkthrough`]: `Big-O describes how the number of steps grows as the input size $n$ grows. You keep the fastest-growing term and drop constants, because for large $n$ nothing else matters.
-
-### Worked example
 
 \`\`\`java
 for (int i = 0; i < n; i++) {        // A

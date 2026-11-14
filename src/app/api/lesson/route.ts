@@ -1,13 +1,18 @@
+import { z } from "zod";
 import { modeById } from "@/lib/modes";
-import { aiAvailable, courseBlock, FORMAT_RULES, levelNote, NO_AI, streamText, type TopicContext } from "@/lib/server/ai";
-import type { InstructorPolicy, ModeId } from "@/lib/types";
+import { aiAvailable, courseBlock, FORMAT_RULES, levelNote, NO_AI, streamText } from "@/lib/server/ai";
+import { ContextSchema, ModeSchema, parseBody, PolicySchema } from "@/lib/server/body";
+
+const Body = z.object({ context: ContextSchema, mode: ModeSchema, policy: PolicySchema.optional() });
 
 export async function POST(req: Request) {
   if (!aiAvailable()) return NO_AI();
-  const { context, mode, policy } = (await req.json()) as { context: TopicContext; mode: ModeId; policy?: InstructorPolicy };
+  const body = await parseBody(req, Body);
+  if (!body.ok) return body.response;
+  const { context, mode, policy } = body.data;
   const m = modeById(mode);
 
-  const system = `You write short lessons inside a study app for Georgia Tech students. The student has just tried a question on this topic cold, and after reading your lesson they go straight to practice questions and then have to explain the topic in their own words. The lesson is successful if they can do those two things, so favour the reasoning they will need to reproduce over coverage.
+  const system = `You write short lessons inside a study app for Georgia Tech students. The student has just tried a question on this topic cold, and after reading your lesson they go straight to practice questions and then have to explain the topic in their own words. The lesson is successful if they can do those two things, so favor the reasoning they will need to reproduce over coverage.
 
 ${courseBlock(context, policy)}
 
@@ -21,5 +26,6 @@ Keep it to what one focused 5 to 8 minute read can hold. Use the terminology and
     system,
     messages: [{ role: "user", content: `Write the lesson on "${context.topicTitle}".` }],
     effort: "medium",
+    signal: req.signal,
   });
 }

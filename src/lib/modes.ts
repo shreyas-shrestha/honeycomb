@@ -27,7 +27,7 @@ export const MODES: Mode[] = [
     blurb: "Get to the idea through a sequence of questions you answer.",
     bestFor: "When you half know it and want it to stick",
     brief:
-      "Teach as a ladder of five to seven questions that lead the learner to construct the idea themselves, starting from what the prerequisites give them. After each question put the answer inside a collapsed block using the HTML form <details><summary>Check</summary>answer</details> so the learner commits to a guess first. End with a two-sentence statement of the idea.",
+      "Teach as a ladder of five to seven questions that lead the learner to construct the idea themselves, starting from what the prerequisites give them. After each question put the answer inside a collapsed block written exactly like this, with a blank line after the summary line and a blank line before the closing tag so the answer renders as Markdown:\n\n<details>\n<summary>Check</summary>\n\nanswer\n\n</details>\n\nThis makes the learner commit to a guess first. End with a two-sentence statement of the idea.",
   },
   {
     id: "visual",
@@ -43,7 +43,7 @@ export const MODES: Mode[] = [
     blurb: "Build the result from definitions so you know why it is true.",
     bestFor: "Proofs, formulas you keep forgetting",
     brief:
-      "Derive the result from definitions and prerequisites. State what is assumed, then build up in numbered steps, each justified. Pause twice with a short 'Why does this step work?' question whose answer sits in a <details><summary>Check</summary>answer</details> block. Finish with the result and the one condition under which it fails.",
+      "Derive the result from definitions and prerequisites. State what is assumed, then build up in numbered steps, each justified. Pause twice with a short 'Why does this step work?' question whose answer sits in a collapsed block written exactly like this, with a blank line after the summary line and a blank line before the closing tag so the answer renders as Markdown:\n\n<details>\n<summary>Check</summary>\n\nanswer\n\n</details>\n\n Finish with the result and the one condition under which it fails.",
   },
   {
     id: "recap",

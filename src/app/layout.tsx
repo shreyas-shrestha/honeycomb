@@ -8,7 +8,7 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Hive",
+  title: "Honeycomb",
   description: "Turn your syllabus into a study plan that teaches, quizzes and reviews. Built for Georgia Tech courses.",
 };
 
