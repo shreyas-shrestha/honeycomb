@@ -14,11 +14,13 @@ const NAV: { href: string; label: string; short?: string; instructorOnly?: boole
   { href: "/teach", label: "Classes", instructorOnly: true },
 ];
 
-export function Logo({ size = 24 }: { size?: number }) {
+// Three cells of comb, one already filled: the course map in miniature.
+export function Logo({ size = 26 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 1.5l9.1 5.25v10.5L12 22.5l-9.1-5.25V6.75z" fill="var(--ink)" />
-      <path d="M12 6.6l4.7 2.7v5.4L12 17.4l-4.7-2.7V9.3z" fill="var(--honey)" />
+    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" stroke="var(--ink)" strokeWidth="1.9" strokeLinejoin="round">
+      <polygon points="9.77,4.2 15.31,7.4 15.31,13.8 9.77,17 4.23,13.8 4.23,7.4" fill="var(--honey)" />
+      <polygon points="22.23,4.2 27.77,7.4 27.77,13.8 22.23,17 16.69,13.8 16.69,7.4" fill="var(--surface)" />
+      <polygon points="16,15 21.54,18.2 21.54,24.6 16,27.8 10.46,24.6 10.46,18.2" fill="var(--surface)" />
     </svg>
   );
 }
