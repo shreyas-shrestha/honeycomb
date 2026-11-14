@@ -45,14 +45,25 @@ const SCHEMA = `
   );
 `;
 
+// The hosted database, if one is configured. Vercel's Turso integration names its
+// variables with a prefix the installer chooses, so besides TURSO_DATABASE_URL
+// this accepts any variable holding a libsql:// address, with the token under the same prefix.
+function hosted(): { url: string; authToken?: string } | null {
+  const named = process.env.TURSO_DATABASE_URL;
+  const found = named ? (["TURSO_DATABASE_URL", named] as const) : Object.entries(process.env).find(([, v]) => v?.startsWith("libsql://"));
+  if (!found?.[1]) return null;
+  const prefix = found[0].replace(/_(DATABASE_)?URL$/, "");
+  return { url: found[1], authToken: process.env.TURSO_AUTH_TOKEN ?? process.env[`${prefix}_AUTH_TOKEN`] ?? process.env[`${prefix}_TOKEN`] };
+}
+
 async function open(): Promise<Client> {
-  const remote = process.env.TURSO_DATABASE_URL;
+  const remote = hosted();
   if (!remote && process.env.VERCEL) {
-    throw new Error("No database is configured. Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN for this deployment.");
+    throw new Error("No database is configured. Connect a Turso database to this deployment.");
   }
   let client: Client;
   if (remote) {
-    client = createClient({ url: remote, authToken: process.env.TURSO_AUTH_TOKEN });
+    client = createClient(remote);
   } else {
     const file = process.env.HONEYCOMB_DB ?? path.join(process.cwd(), "data", "honeycomb.db");
     mkdirSync(path.dirname(file), { recursive: true });
