@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { requireUser } from "@/lib/server/auth";
 import { aiAvailable, courseBlock, errorMessage, FORMAT_RULES, NO_AI, structured, untagged } from "@/lib/server/ai";
 import { ContextSchema, parseBody } from "@/lib/server/body";
 import type { Grade } from "@/lib/types";
@@ -19,6 +20,8 @@ const GradeOut = z.object({
 });
 
 export async function POST(req: Request) {
+  const auth = await requireUser(req, { ai: true });
+  if (!auth.ok) return auth.response;
   if (!aiAvailable()) return NO_AI();
   const body = await parseBody(req, Body);
   if (!body.ok) return body.response;

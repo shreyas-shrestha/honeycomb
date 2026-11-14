@@ -1,5 +1,6 @@
+import { demoExperiences } from "./demo-experiences";
 import { localISO } from "./mastery";
-import type { Course, Question, Topic } from "./types";
+import type { ClassBundle, Course, Question, Topic } from "./types";
 
 // A hand-written sample so the app is usable without an API key. Dates are set
 // relative to the day the demo is loaded so the exam countdown always has
@@ -13,7 +14,7 @@ const inDays = (n: number) => {
   return localISO(d);
 };
 
-export function buildDemoCourse(): { course: Course; questions: Record<string, Question[]>; lessons: Record<string, string> } {
+export function buildDemoCourse(): ClassBundle {
   const e1 = `${ID}.exam.1`;
   const e2 = `${ID}.exam.2`;
   const fin = `${ID}.exam.final`;
@@ -48,11 +49,11 @@ export function buildDemoCourse(): { course: Course; questions: Record<string, Q
       { id: fin, title: "Final exam", date: inDays(27), weightPct: 30 },
     ],
     units: [
-      { id: `${ID}.u0`, title: "Foundations", when: "Weeks 1-3" },
-      { id: `${ID}.u1`, title: "Trees", when: "Weeks 4-7" },
+      { id: `${ID}.u0`, title: "Foundations", when: "Weeks 1–3" },
+      { id: `${ID}.u1`, title: "Trees", when: "Weeks 4–7" },
       { id: `${ID}.u2`, title: "Hashing", when: "Week 8" },
-      { id: `${ID}.u3`, title: "Sorting", when: "Weeks 9-10" },
-      { id: `${ID}.u4`, title: "Graphs", when: "Weeks 11-14" },
+      { id: `${ID}.u3`, title: "Sorting", when: "Weeks 9–10" },
+      { id: `${ID}.u4`, title: "Graphs", when: "Weeks 11–14" },
     ],
     topics: [
       topic("big-o", 0, "Big-O analysis", "Describing how running time grows with input size.", ["Find the Big-O of loops and nested loops", "Tell worst-case from amortized cost", "Drop constants and lower-order terms correctly"], [], [e1], 3),
@@ -65,7 +66,7 @@ export function buildDemoCourse(): { course: Course; questions: Record<string, Q
       topic("hashmaps", 2, "HashMaps and collision handling", "Key-value storage with external chaining and linear probing.", ["Trace puts and removes under linear probing", "Explain load factor and resizing", "Say why removals need DEL markers"], ["arraylists"], [e2], 3),
       topic("sorts", 3, "Merge sort and quicksort", "Divide-and-conquer sorting and its best, average and worst cases.", ["Trace both algorithms", "State stability, in-place and complexity for each"], ["big-o"], [], 2),
       topic("bfs-dfs", 4, "Graph traversal: BFS and DFS", "Visiting every vertex with a queue or a stack.", ["Trace BFS and DFS from a start vertex", "Pick the traversal that fits a problem"], ["stacks-queues"], [], 2),
-      topic("dijkstra", 4, "Dijkstra's shortest paths", "Shortest paths from one source using a priority queue.", ["Trace Dijkstra's with a distance map", "Explain why negative edges break it"], ["bfs-dfs", "heaps"], [], 3),
+      topic("dijkstra", 4, "Dijkstra’s shortest paths", "Shortest paths from one source using a priority queue.", ["Trace Dijkstra’s with a distance map", "Explain why negative edges break it"], ["bfs-dfs", "heaps"], [], 3),
     ],
     basis: "demo",
     sources: [],
@@ -95,15 +96,15 @@ export function buildDemoCourse(): { course: Course; questions: Record<string, Q
     ],
     [t("heaps")]: [
       mcq("heaps", "In a heap stored in an array starting at index 1, what is the index of the parent of the element at index 11?", ["4", "5", "6", "10"], 1, "With 1-indexing the children of index $i$ are $2i$ and $2i+1$, so the parent is $\\lfloor i/2 \\rfloor = \\lfloor 11/2 \\rfloor = 5$.", 1),
-      mcq("heaps", "A min-heap is stored 1-indexed as `[_, 2, 5, 3, 9, 6, 8]`. What is the array after one `remove()`?", ["`[_, 3, 5, 8, 9, 6]`", "`[_, 5, 3, 9, 6, 8]`", "`[_, 3, 5, 6, 9, 8]`", "`[_, 8, 5, 3, 9, 6]`"], 0, "Remove the root (2), move the last element (8) to the root, then down-heap. 8's children are 5 and 3; swap with the smaller, 3, giving `[_, 3, 5, 8, 9, 6]`. Index 3 now has no children, so stop. The last option forgets to down-heap.", 2),
+      mcq("heaps", "A min-heap is stored 1-indexed as `[_, 2, 5, 3, 9, 6, 8]`. What is the array after one `remove()`?", ["`[_, 3, 5, 8, 9, 6]`", "`[_, 5, 3, 9, 6, 8]`", "`[_, 3, 5, 6, 9, 8]`", "`[_, 8, 5, 3, 9, 6]`"], 0, "Remove the root (2), move the last element (8) to the root, then down-heap. 8’s children are 5 and 3; swap with the smaller, 3, giving `[_, 3, 5, 8, 9, 6]`. Index 3 now has no children, so stop. The last option forgets to down-heap.", 2),
       mcq("heaps", "What is the running time of the buildHeap algorithm, which down-heaps from the last non-leaf node back to the root?", ["$O(\\log n)$", "$O(n \\log n)$", "$O(n)$", "$O(n^2)$"], 2, "It looks like $n$ down-heaps of $O(\\log n)$ each, but most nodes are near the bottom and move very few levels. Half the nodes are leaves and move zero. Summing the actual work gives $O(n)$. Adding $n$ items one at a time is the $O(n \\log n)$ approach.", 2),
-      free("heaps", "A heap has height $O(\\log n)$, yet finding an arbitrary value in it takes $O(n)$. Explain why, and contrast with a balanced BST.", "The heap property only orders a parent against its children. It says nothing about left versus right, so when looking for a value you cannot rule out either subtree and may have to check every node. A BST orders left < node < right, so each comparison discards a whole subtree and a balanced BST finds a value in $O(\\log n)$.", ["Heap order only relates parent and child", "There is no ordering between left and right subtrees, so no subtree can be discarded", "Search may visit every node, O(n)", "A BST's ordering lets each comparison discard half the tree"]),
+      free("heaps", "A heap has height $O(\\log n)$, yet finding an arbitrary value in it takes $O(n)$. Explain why, and contrast with a balanced BST.", "The heap property only orders a parent against its children. It says nothing about left versus right, so when looking for a value you cannot rule out either subtree and may have to check every node. A BST orders left < node < right, so each comparison discards a whole subtree and a balanced BST finds a value in $O(\\log n)$.", ["Heap order only relates parent and child", "There is no ordering between left and right subtrees, so no subtree can be discarded", "Search may visit every node, O(n)", "A BST’s ordering lets each comparison discard half the tree"]),
     ],
     [t("hashmaps")]: [
       mcq("hashmaps", "A table of capacity 11 uses linear probing with index `key % 11`. You put keys 22, 33, 44 in that order. At which index does 44 end up?", ["0", "1", "2", "4"], 2, "All three keys hash to 0. 22 takes index 0. 33 collides and probes to 1. 44 collides at 0 and at 1, and lands at 2.", 1),
       mcq("hashmaps", "With linear probing, why is a removed entry marked as deleted (a DEL marker) and not simply set to null?", ["To save memory when the table is resized", "So a later search keeps probing past that slot", "To keep the load factor from changing", "So the key can be restored if it is added again"], 1, "A search stops when it reaches null. If a removed slot became null, any key that had probed past it would become unreachable. The marker tells searches to keep going.", 2),
       mcq("hashmaps", "A table has capacity 13 and a maximum load factor of 0.67, checked before each add. Adding which entry triggers the first resize?", ["The 8th", "The 9th", "The 10th", "The 13th"], 1, "Adding the 8th gives $8/13 \\approx 0.615$, which is fine. Adding the 9th would give $9/13 \\approx 0.692 > 0.67$, so the table resizes before that add.", 2),
-      free("hashmaps", "When a HashMap resizes, each entry is re-inserted into the new array and not copied to the same index it had before. Explain why.", "An entry's index is its hash code modulo the table capacity. Changing the capacity changes that result for most keys, so an entry left at its old index would not be where a lookup searches for it. Re-inserting also drops DEL markers and breaks up probe clusters.", ["Index is computed from the hash and the capacity (hash mod capacity)", "A new capacity gives a different index for most keys", "Copying to the old index would make lookups miss the entry", "Rehashing also clears DEL markers or clusters (bonus)"]),
+      free("hashmaps", "When a HashMap resizes, each entry is re-inserted into the new array and not copied to the same index it had before. Explain why.", "An entry’s index is its hash code modulo the table capacity. Changing the capacity changes that result for most keys, so an entry left at its old index would not be where a lookup searches for it. Re-inserting also drops DEL markers and breaks up probe clusters.", ["Index is computed from the hash and the capacity (hash mod capacity)", "A new capacity gives a different index for most keys", "Copying to the old index would make lookups miss the entry", "Rehashing also clears DEL markers or clusters (bonus)"]),
     ],
   };
 
@@ -224,5 +225,5 @@ Load factor = size ÷ capacity. As it rises, probe sequences get longer. CS 1332
 Same table, capacity 7, starting empty. Put 14, 21, 7 in that order. 14 % 7 = 0, so 14 goes to index 0. Work out where 21 and 7 land, then say which slots a \`get(7)\` examines.`,
   };
 
-  return { course, questions, lessons };
+  return { course, questions, lessons, experiences: demoExperiences(t, course.createdAt) };
 }

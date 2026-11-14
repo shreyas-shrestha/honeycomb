@@ -1,38 +1,48 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { RequireUser } from "@/components/RequireUser";
+import { useEffect, useState } from "react";
 import { Bar, Empty, Loading, Notice } from "@/components/ui";
-import { pct } from "@/lib/client";
-import { CALIBRATION_NOTICE, calibrationGap } from "@/lib/mastery";
+import { useUser } from "@/lib/auth";
+import { errorText, getJSON, HttpError, pct, postJSON, sendJSON } from "@/lib/client";
 import { MODES } from "@/lib/modes";
-import { actions, policyFor, useHydrated, useStore } from "@/lib/store";
-import { HELP_LEVELS, type Course, type InstructorPolicy, type Topic, type TopicState } from "@/lib/types";
+import { bundleOf, getState, useStore } from "@/lib/store";
+import { HELP_LEVELS, type ClassInsights, type ClassSummary, type InstructorPolicy } from "@/lib/types";
 
-function PolicyForm({ course }: { course: Course }) {
-  const saved = useStore((s) => policyFor(s, course.id));
-  const [p, setP] = useState<InstructorPolicy>(saved);
+const fetchClasses = () => getJSON<{ classes: ClassSummary[] }>("/api/classes").then((r) => r.classes);
+
+function PolicyForm({ cls, onSaved }: { cls: ClassSummary; onSaved: () => void }) {
+  const [p, setP] = useState<InstructorPolicy>(cls.policy);
   const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
   const set = <K extends keyof InstructorPolicy>(k: K, v: InstructorPolicy[K]) => {
     setP((x) => ({ ...x, [k]: v }));
     setStatus("");
   };
 
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!p.allowedModes.length) return setStatus("Allow at least one explanation format.");
+    setBusy(true);
+    try {
+      await sendJSON("PUT", "/api/classes/policy", { id: cls.id, policy: p });
+      setStatus("Saved. It applies to every student in the class from their next message.");
+      onSaved();
+    } catch (err) {
+      setStatus(errorText(err, "Could not save."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <form
-      className="card space-y-7 p-5 sm:p-6"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (!p.allowedModes.length) return setStatus("Allow at least one explanation format.");
-        actions.setPolicy(course.id, p);
-        setStatus("Saved. The tutor and new lessons follow these settings from now on.");
-      }}
-    >
+    <form className="card space-y-7 p-5 sm:p-6" onSubmit={save}>
       <fieldset>
         <legend className="card-title">How much help may the tutor give?</legend>
         <div className="mt-3 grid gap-2">
           {HELP_LEVELS.map((l) => (
-            <label key={l.id} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${p.helpLevel === l.id ? "border-honey-edge bg-honey-soft" : "border-line"}`}>
+            <label key={l.id} className={`flex cursor-pointer items-start gap-3 rounded-[10px] border p-3 ${p.helpLevel === l.id ? "border-ink bg-honey-soft" : "border-line-strong"}`}>
               <input type="radio" name="help" className="check mt-0.5" checked={p.helpLevel === l.id} onChange={() => set("helpLevel", l.id)} />
               <span>
                 <span className="block text-sm font-semibold">{l.name}</span>
@@ -69,12 +79,7 @@ function PolicyForm({ course }: { course: Course }) {
         <div className="mt-2 grid sm:grid-cols-2 sm:gap-x-4">
           {MODES.map((m) => (
             <label key={m.id} className="flex cursor-pointer items-start gap-3 py-2 text-sm">
-              <input
-                type="checkbox"
-                className="check"
-                checked={p.allowedModes.includes(m.id)}
-                onChange={(e) => set("allowedModes", e.target.checked ? [...p.allowedModes, m.id] : p.allowedModes.filter((x) => x !== m.id))}
-              />
+              <input type="checkbox" className="check" checked={p.allowedModes.includes(m.id)} onChange={(e) => set("allowedModes", e.target.checked ? [...p.allowedModes, m.id] : p.allowedModes.filter((x) => x !== m.id))} />
               <span><span className="font-semibold">{m.name}</span><span className="block leading-relaxed text-muted">{m.blurb}</span></span>
             </label>
           ))}
@@ -82,93 +87,172 @@ function PolicyForm({ course }: { course: Course }) {
       </fieldset>
 
       <div className="flex flex-wrap items-center gap-3">
-        <button type="submit" className="btn btn-honey">Save settings</button>
+        <button type="submit" className="btn btn-primary" disabled={busy}>Save tutor rules</button>
         <span className="text-sm text-muted" role="status">{status}</span>
       </div>
     </form>
   );
 }
 
-function Insights({ course }: { course: Course }) {
-  const states = useStore((s) => s.topicState);
-  const rows = course.topics
-    .map((t) => ({ t, s: states[t.id] }))
-    .filter((r): r is { t: Topic; s: TopicState } => Boolean(r.s?.attempts))
-    .sort((a, b) => a.s.mastery - b.s.mastery);
-  const gap = calibrationGap(rows.map((r) => r.s));
+function Insights({ classId }: { classId: string }) {
+  const [data, setData] = useState<ClassInsights | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const ctrl = new AbortController();
+    getJSON<ClassInsights>(`/api/classes/insights?id=${encodeURIComponent(classId)}`, ctrl.signal)
+      .then(setData)
+      .catch((e) => {
+        if (!ctrl.signal.aborted) setError(errorText(e, "Could not load class progress."));
+      });
+    return () => ctrl.abort();
+  }, [classId]);
 
   return (
-    <div className="card p-5">
-      <h2 className="card-title">Where students struggle</h2>
-      <p className="hint mt-1">Prototype: this shows only the practice data stored in this browser. A class view needs accounts and student consent.</p>
-      {rows.length === 0 ? (
-        <p className="mt-4 text-sm text-muted">No practice data yet.</p>
-      ) : (
-        <ul className="mt-4 space-y-4">
-          {rows.slice(0, 6).map(({ t, s }) => {
-            const weak = s.mastery < 0.5;
-            return (
-              <li key={t.id}>
-                <div className="mb-1.5 flex justify-between gap-2 text-sm">
-                  <span className="truncate">{t.title}</span>
-                  <span className="shrink-0 tabular-nums text-muted">{weak ? "Needs work · " : ""}{pct(s.mastery)} · {s.correct}/{s.attempts} right</span>
-                </div>
-                <Bar value={s.mastery} label={`${t.title} mastery`} tone={weak ? "honey" : "leaf"} />
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {gap !== null && (
-        <p className="mt-4 text-sm">
-          Confidence vs results: <span className="font-semibold tabular-nums">{gap > 0 ? "+" : ""}{Math.round(gap * 100)} points</span>{" "}
-          <span className="text-muted">({gap >= CALIBRATION_NOTICE ? "overconfident" : gap <= -CALIBRATION_NOTICE ? "underconfident" : "well calibrated"})</span>
+    <div className="card min-w-0 p-5 sm:p-6">
+      <h2 className="card-title">Where the class is struggling</h2>
+      <p className="hint mt-1">Class averages by topic. A topic appears once {data?.minStudents ?? 3} students have practiced it, so no number points to one person.</p>
+      {error ? (
+        <div className="mt-3"><Notice tone="rose">{error}</Notice></div>
+      ) : !data ? (
+        <div className="mt-3"><Loading /></div>
+      ) : data.topics.length === 0 ? (
+        <p className="mt-4 text-sm text-muted">
+          {data.students === 0
+            ? "No students have joined yet. Share the class code."
+            : `${data.active} of ${data.students} student${data.students === 1 ? " has" : "s have"} practiced. No topic has reached ${data.minStudents} students yet.`}
         </p>
+      ) : (
+        <>
+          <p className="mt-3 text-sm"><span className="font-semibold tabular-nums">{data.active}</span> of <span className="tabular-nums">{data.students}</span> students have practiced.</p>
+          <ul className="mt-4 space-y-4">
+            {data.topics.slice(0, 8).map((t) => {
+              const weak = t.mastery < 0.5;
+              return (
+                <li key={t.topicId}>
+                  <div className="mb-1.5 flex justify-between gap-2 text-sm">
+                    <span className="truncate">{t.title}</span>
+                    <span className="shrink-0 tabular-nums text-muted">{weak ? "Needs work · " : ""}{pct(t.mastery)} · {t.students} students</span>
+                  </div>
+                  <Bar value={t.mastery} label={`${t.title} average mastery`} />
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
     </div>
   );
 }
 
-export default function TeachPage() {
-  const hydrated = useHydrated();
+function Classes() {
   const courses = useStore((s) => s.courses);
-  const active = useStore((s) => s.activeCourseId);
-  const list = Object.values(courses);
+  const [classes, setClasses] = useState<ClassSummary[] | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
-  const course = courses[picked ?? active ?? ""] ?? list[0];
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  // Courses joined from someone else's class are theirs to publish, not this account's.
+  const own = Object.values(courses).filter((c) => !c.classId);
 
-  if (!hydrated) return <Loading />;
-  if (!course) {
-    return (
-      <Empty title="Instructor settings">
-        <p>Add a course first, then set how Honeycomb teaches it.</p>
-        <Link href="/" className="btn btn-honey mt-4">Go to courses</Link>
-      </Empty>
-    );
+  useEffect(() => {
+    let live = true;
+    fetchClasses()
+      .then((list) => live && setClasses(list))
+      .catch((e) => {
+        if (!live) return;
+        setError(errorText(e, "Could not load your classes."));
+        setClasses([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+  const refresh = async () => setClasses(await fetchClasses());
+
+  async function publish(courseId: string) {
+    const bundle = bundleOf(getState(), courseId);
+    if (!bundle) return;
+    setError("");
+    setBusy(courseId);
+    try {
+      const { class: cls } = await postJSON<{ class: ClassSummary }>("/api/classes", bundle);
+      setPicked(cls.id);
+      await refresh();
+    } catch (e) {
+      // A validation message is worth showing; a bare status code is not.
+      setError(e instanceof HttpError && e.status < 500 ? e.message : "Could not publish this course. Try again.");
+    } finally {
+      setBusy("");
+    }
   }
+
+  if (classes === null) return <Loading />;
+  const current = classes.find((c) => c.id === picked) ?? classes[0];
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="eyebrow">{course.code}</p>
-          <h1 className="title mt-1">Instructor settings</h1>
-          <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-muted">Decide how the tutor behaves in your course. Students see the help level in the tutor panel and cannot change it.</p>
-        </div>
-        {list.length > 1 && (
-          <div>
-            <label className="label" htmlFor="course">Course</label>
-            <select id="course" className="field" value={course.id} onChange={(e) => setPicked(e.target.value)}>
-              {list.map((c) => <option key={c.id} value={c.id}>{c.code} {c.title}</option>)}
-            </select>
-          </div>
-        )}
+      <header>
+        <h1 className="title">Classes</h1>
+        <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-muted">Publishing gives you a class code. Students who join get your course, its lessons and questions, and the tutor follows the rules you set here.</p>
       </header>
-      <Notice>Prototype: there are no accounts yet, so anyone using this browser can change these settings. In the real product this page is limited to the verified instructor of the section.</Notice>
-      <div className="panel grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <PolicyForm key={course.id} course={course} />
-        <Insights course={course} />
-      </div>
+      {error && <Notice tone="rose">{error}</Notice>}
+
+      <section className="card divide-y divide-line">
+        {own.length === 0 ? (
+          <div className="p-5 text-sm text-muted">
+            You have no courses yet. <Link href="/" className="underline underline-offset-2">Add one</Link>, shape its lessons in the <Link href="/studio" className="underline underline-offset-2">Studio</Link>, then publish it here.
+          </div>
+        ) : (
+          own.map((c) => {
+            const cls = classes.find((x) => x.courseId === c.id);
+            return (
+              <div key={c.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 p-5">
+                <div className="min-w-0 flex-1 basis-56">
+                  <p className="font-medium">{c.code} {c.title}</p>
+                  <p className="text-sm text-muted">
+                    {cls ? <>Class code <span className="font-mono font-semibold text-ink">{cls.code}</span> · <span className="tabular-nums">{cls.students}</span> student{cls.students === 1 ? "" : "s"}</> : "Not published"}
+                  </p>
+                </div>
+                {cls && <button type="button" className="btn btn-sm" aria-pressed={current?.id === cls.id} onClick={() => setPicked(cls.id)}>Manage</button>}
+                <button type="button" className={`btn btn-sm ${cls ? "" : "btn-primary"}`} disabled={busy === c.id} onClick={() => void publish(c.id)}>
+                  {busy === c.id ? "Publishing…" : cls ? "Update for students" : "Publish"}
+                </button>
+              </div>
+            );
+          })
+        )}
+      </section>
+
+      {current && (
+        <section className="space-y-4" aria-labelledby="manage">
+          <h2 id="manage" className="heading">{current.title}</h2>
+          <Notice>New students joining with <span className="font-mono font-semibold">{current.code}</span> get the latest published version. Students who already joined keep their version until they enter the code again.</Notice>
+          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+            <PolicyForm key={current.id} cls={current} onSaved={() => void refresh()} />
+            <Insights key={current.id} classId={current.id} />
+          </div>
+        </section>
+      )}
     </div>
+  );
+}
+
+function TeachScreen() {
+  const user = useUser();
+  if (user.role !== "instructor") {
+    return (
+      <Empty title="Classes are for instructor accounts">
+        <p>Instructors publish a course and share a class code. To join a class, enter its code on the Courses page.</p>
+        <Link href="/" className="btn btn-primary mt-4">Go to courses</Link>
+      </Empty>
+    );
+  }
+  return <Classes />;
+}
+
+export default function TeachPage() {
+  return (
+    <RequireUser>
+      <TeachScreen />
+    </RequireUser>
   );
 }

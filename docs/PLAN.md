@@ -2,7 +2,7 @@
 
 Working name "Honeycomb". Independent student project, not affiliated with or endorsed by Georgia Tech (see [Branding](#branding-and-legal)).
 
-## 1. The bet
+## 1. Why build this
 
 Students already learn with Claude and ChatGPT, but a chat box is a poor harness for learning: it has no model of the course, no memory of what you got wrong, no schedule, and it hands over answers. The best-known study on this (Bastani et al., PNAS 2025, about 1,000 students) found plain chat access raised practice scores 48% and then **lowered exam scores 17%** once it was taken away. A tutor version that gave hints instead of answers removed the harm.
 
@@ -21,21 +21,26 @@ Honeycomb's unit is **the course you are enrolled in**, with its syllabus, its e
 
 ## 2. What the research says to build
 
-Sources are listed in section 9. Rules marked ✅ are in the current build.
+Sources are listed in section 9.
 
-1. ✅ **Attempt first.** A committed answer comes before any hint or solution (Bastani 2025; Kestin 2025).
-2. ✅ **Hints, not answers.** Nudge, then next step, then worked step; full solution last. Level is set per course by the instructor.
-3. ✅ **Retrieval is the default activity.** Every session opens with a question before the lesson and closes with practice (Roediger & Karpicke 2006; Dunlosky 2013 rates practice testing and spacing "high utility", rereading and summarising "low").
-4. ✅ **Spaced review with FSRS** (`ts-fsrs`, target retention 0.9). FSRS predicts recall better than older schedulers on about 10k Anki collections.
-5. ✅ **Prerequisite graph.** Topics wait until prerequisites are half learned; the planner sends you back to the weak prerequisite.
-6. ✅ **No diagnosed "learning styles".** Matching instruction to a visual/auditory/kinesthetic type is not supported (Pashler 2008; Clinton-Lisell 2024). What is supported: words plus a relevant picture for everyone, format chosen by content, adapting to prior knowledge, and learner choice for motivation. Honeycomb offers five **explanation modes** the learner picks per topic (worked example, question-led, picture it, derive it, fast recap).
-7. ✅ **Teach it back.** Each topic ends with explaining it in your own words, graded against the topic's objectives (self-explanation and learning-by-teaching literature).
-8. ✅ **Confidence before feedback.** You rate how sure you are before seeing the answer; Honeycomb shows your calibration, because feeling of learning is a poor guide to actual learning (Deslauriers 2019).
-9. ✅ **Interleaved review** across topics and courses (Rohrer 2015).
-10. ⬜ **Fade scaffolds by expertise.** Worked examples help novices and hurt experts (Kalyuga 2003). Next: pick the default mode from mastery.
-11. ⬜ **Ground content in the professor's materials**, with citations to the slide or page. Kestin's tutor had expert-written solutions in the prompt; free generation is the main accuracy risk.
-12. ⬜ **Measure mastery only on unassisted, delayed items.** Today any practice answer counts; hinted answers should count for less.
-13. ⬜ **Light, forgiving streaks** tied to completed retrieval, tested against delayed scores, not engagement. Evidence for streaks is about retention of users, not of knowledge, so this is deliberately left out of v0.
+Built:
+
+- **Attempt first.** A committed answer comes before any hint or solution (Bastani 2025; Kestin 2025).
+- **Hints, not answers.** Nudge, then next step, then worked step; full solution last. Level is set per course by the instructor.
+- **Retrieval is the default activity.** Every session opens with a question before the lesson and closes with practice (Roediger & Karpicke 2006; Dunlosky 2013 rates practice testing and spacing "high utility", rereading and summarising "low").
+- **Spaced review with FSRS** (`ts-fsrs`, target retention 0.9). FSRS predicts recall better than older schedulers on about 10k Anki collections.
+- **Prerequisite graph.** Topics wait until prerequisites are half learned; the planner sends you back to the weak prerequisite.
+- **No diagnosed "learning styles".** Matching instruction to a visual/auditory/kinesthetic type is not supported (Pashler 2008; Clinton-Lisell 2024). What is supported: words plus a relevant picture for everyone, format chosen by content, adapting to prior knowledge, and learner choice for motivation. Honeycomb offers five **explanation modes** the learner picks per topic (worked example, question-led, picture it, derive it, fast recap).
+- **Teach it back.** Each topic ends with explaining it in your own words, graded against the topic's objectives (self-explanation and learning-by-teaching literature).
+- **Confidence before feedback.** You rate how sure you are before seeing the answer; Honeycomb shows your calibration, because feeling of learning is a poor guide to actual learning (Deslauriers 2019).
+- **Interleaved review** across topics and courses (Rohrer 2015).
+
+Not built yet:
+
+- **Fade scaffolds by expertise.** Worked examples help novices and hurt experts (Kalyuga 2003). Next: pick the default mode from mastery.
+- **Ground content in the professor's materials**, with citations to the slide or page. Kestin's tutor had expert-written solutions in the prompt; free generation is the main accuracy risk.
+- **Measure mastery only on unassisted, delayed items.** Today any practice answer counts; hinted answers should count for less.
+- **Light, forgiving streaks** tied to completed retrieval, tested against delayed scores, not engagement. Evidence for streaks is about retention of users, not of knowledge, so this is deliberately left out of v0.
 
 ## 3. Product
 
@@ -45,11 +50,12 @@ Sources are listed in section 9. Rules marked ✅ are in the current build.
 2. **Course map.** Topics grouped by unit with a mastery bar each; readiness for each exam with a countdown; "Up next" with a stated reason ("On an exam in 9 days", "Due for review").
 3. **Session on one topic** (about 15 minutes):
    - *Try first*: one question before any teaching.
-   - *Learn*: the lesson in the mode you choose; switch modes freely.
+   - *Learn*: an interactive lesson worked through one step at a time (quick checks, step-through traces, put-in-order, fill-the-blanks, matching, explain-it-yourself), or a written explanation in the format you choose.
    - *Practice*: mixed multiple-choice and free-response, confidence before reveal, feedback on what was missed.
    - *Teach back*: explain it to a classmate; graded against objectives.
    - A tutor panel is available throughout and follows the course's help level.
 4. **Daily review.** Due topics from all courses, interleaved, one question each.
+5. **Studio.** Build or reshape the interactive lesson for any topic: draft it with AI, reorder and trim the steps, add your own, and preview it as a student.
 
 ### Instructor
 
@@ -57,26 +63,30 @@ Sources are listed in section 9. Rules marked ✅ are in the current build.
 - **Emphasis, notation and conventions** ("we use 0-indexed heaps", "expect loop-invariant proofs").
 - **Off-limits work** (graded homework, projects): the tutor will discuss concepts but not solve them.
 - **Allowed explanation modes**.
-- **Class insights**: weakest topics, confidence-vs-accuracy gap. In v0 this reads only the local browser's data; the real version needs accounts and consent.
+- **Publish a class**: the instructor's course, lessons and questions go out under a class code that students join with.
+- **Class insights**: average mastery per topic across students who joined, weakest first. Joining tells the student this is shared; no individual student is shown.
 
 ## 4. Architecture
 
-Current build (prototype):
+Current build:
 
-- **Next.js 16 (App Router), TypeScript, Tailwind 4.** Pages: `/` (courses, add course), `/course` (map), `/learn` (session), `/review`, `/teach` (instructor).
-- **AI**: OpenAI Node SDK (Responses API), default model `gpt-6.1-sol`; structured outputs (Zod) for course maps, questions and grading; streaming for lessons and the tutor; the built-in web search tool to find a course's public syllabus when the student has none. Change the model with `HONEYCOMB_MODEL` (`gpt-6-astra` is stronger at about five times the price).
+- **Next.js 16 (App Router), TypeScript, Tailwind 4.** Pages: `/` (landing, or your courses), `/course` (study plan), `/learn` (session), `/review`, `/studio` (lesson builder), `/teach` (classes).
+- **Accounts**: email and password. Passwords are hashed with scrypt; the session is a random token in an httpOnly cookie, stored hashed. Every signed-in route checks the session and refuses cross-site requests; AI routes and sign-in are rate limited.
+- **Data**: SQLite (`data/honeycomb.db`) holding users, sessions, each learner's saved state as one JSON document with a revision counter, classes, and memberships. The browser keeps a copy in memory and saves changes back; a stale save is refused so two tabs cannot overwrite each other.
+- **Classes**: an instructor publishes a course bundle (map, lessons, questions) and gets a class code. Students join with the code. The tutor rules are stored on the class and found on the server from the student's membership (by class, or by course code if the request leaves the class out), so the browser does not get to pick them. A student who rewrites requests to name a different course gets the defaults. Instructors see topic-level averages across the class, and only for topics at least three students have practiced.
+- **Interactive lessons**: a lesson is a list of typed blocks (text, check, trace, order, fill, match, reveal) rendered by one player component. The model writes them as structured output; anything it returns is validated before it is saved, and published lessons are validated again on the server because other students' browsers render them.
+- **AI**: OpenAI Node SDK (Responses API), default model `gpt-6.1-sol`; structured outputs (Zod) for course maps, interactive lessons, questions and grading; streaming for written lessons and the tutor; the built-in web search tool to find a course's public syllabus when the student has none. Change the model with `HONEYCOMB_MODEL`.
 - **Course lookup**: live search over the public Georgia Tech catalog (title, description, prerequisites, this term's instructors), fetched server-side and cached in memory.
-- **State**: browser `localStorage` behind one store module (`src/lib/store.ts`). No accounts yet.
-- **Learning model** (`src/lib/mastery.ts`): per-topic mastery (moving average of scores, penalising confident errors), FSRS card per topic, readiness = mastery × predicted recall, exam readiness = weighted mean over covered topics.
-- **Demo mode**: without an API key the app serves a hand-written CS 1332 course, and free-response answers are self-graded against a rubric.
+- **Learning model** (`src/lib/mastery.ts`): per-topic mastery (moving average of scores, penalising confident errors), an FSRS card per topic, readiness = mastery × predicted recall, exam readiness = weighted mean over covered topics.
+- **Sample content**: a hand-written CS 1332 course with interactive lessons, written lessons and questions for four topics, usable with no API key.
 
-Target (after validation):
+Still to build:
 
-- Postgres (Supabase or Neon) with row-level security; auth by `@gatech.edu` email magic link.
-- Object storage for uploads, private per user. Retrieval over uploaded slides and notes with page-level citations.
-- Background jobs for ingestion and pre-generating question pools; cheaper model for bulk generation, stronger model for tutoring and grading.
-- Review logs stored from day one so FSRS can be fitted per user.
-- Question quality loop: flag button, instructor-verified items, automatic check of every generated question by a second pass.
+- Email verification, password reset, and verifying that an instructor account belongs to the instructor of record (Georgia Tech SSO is the real answer).
+- A managed Postgres database and object storage for a hosted deployment; rate limits that work across processes.
+- Uploading slides and past exams, with answers that cite the page.
+- Pushing a class update to students who already joined, and merging it with their progress.
+- A second-pass check of every generated lesson and question, and a flag button for students.
 
 ## 5. Course data
 
@@ -89,11 +99,11 @@ Target (after validation):
 
 | Phase | Goal | Scope |
 |---|---|---|
-| **0. Prototype** (this repo) | Prove the loop feels better than chat | Catalog search, syllabus or web to course map, sessions with five modes, FSRS review, tutor guardrails, instructor policy, demo course |
-| **1. Private beta, 4 to 6 weeks** | 30 students in 2 courses use it through one exam | Accounts, database, upload slides and past exams with cited answers, pre-generated and checked question pools for CS 1332 and MATH 1554, exam-cram plan, mobile layout |
+| **0. Prototype** (this repo) | Prove the loop feels better than chat | Accounts, catalog search, syllabus or web to course map, interactive lessons and Studio, sessions, FSRS review, tutor guardrails, classes with join codes and server-enforced rules, sample course |
+| **1. Private beta, 4 to 6 weeks** | 30 students in 2 courses use it through one exam | Hosted database, email verification, upload slides and past exams with cited answers, pre-generated and checked question pools for CS 1332 and MATH 1554, exam-cram plan, mobile layout |
 | **2. One semester** | Evidence it works | Compare exam scores of users vs matched non-users with a professor's cooperation; exam-style mock exams with rubric grading; study groups sharing a course map (never files); per-user FSRS fitting |
 | **3. Instructor pilot** | 2 to 3 faculty adopt it | Instructor-verified content, real class insights with consent, Canvas via LTI 1.3, OIT AI-tool review |
-| **4. Expand** | Other campuses | The course-as-unit model generalises; GT is the wedge |
+| **4. Expand** | Other campuses | The same course-based model, one campus at a time |
 
 Success measure for phases 1 and 2: delayed performance (exam scores, unassisted review accuracy after 7+ days), not minutes in the app.
 
@@ -104,13 +114,13 @@ Success measure for phases 1 and 2: delayed performance (exam scores, unassisted
 - **Course materials are copyrighted by faculty.** Uploads stay private to the uploader; no cross-user sharing of files; takedown path. This is the Course Hero failure mode and GT names it explicitly.
 - **Student data.** Students volunteering their own data is one footing; instructor-required use triggers FERPA "school official" contracts and OIT review. Collect the minimum, never GTID or grades from official systems, until there is an agreement.
 - **Cost.** A full session is several model calls. Cache lessons and question pools per course section so the hundredth CS 1332 student costs little.
-- **Incumbents.** ChatGPT Edu and Copilot are institution-provided; Jill Watson answers course questions inside Canvas. None of them run a mastery-and-schedule loop per student, which is the part to defend.
+- **Incumbents.** ChatGPT Edu and Copilot are institution-provided; Jill Watson answers course questions inside Canvas. None of them track what each student knows or schedule review.
 
 ## 8. Branding and legal
 
 Georgia Tech's registered marks include "Georgia Tech", "Buzz", "Yellow Jackets", "Ramblin' Wreck" and the interlocking GT, and it claims "Tech", "Jackets" and the gold, white and navy colour scheme at common law. Use on personal or commercial sites needs written approval, except factual statements.
 
-So: the product name, domain and logo contain none of those; the palette is honey on warm cream with brown ink, not Tech Gold and navy; the copy says "built for Georgia Tech courses" as a statement of fact, with a non-affiliation line in the footer. Contact gtlicensing@gatech.edu before any use beyond that.
+So: the product name, domain and logo contain none of those; the palette is ink and white with a honey accent, not Tech Gold and navy; the copy says "built for Georgia Tech courses" as a statement of fact, with a non-affiliation line in the footer. Contact gtlicensing@gatech.edu before any use beyond that.
 
 ## 9. Sources
 

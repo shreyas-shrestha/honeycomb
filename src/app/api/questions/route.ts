@@ -1,11 +1,13 @@
 import { z } from "zod";
+import { requireUser } from "@/lib/server/auth";
+import { policyFor } from "@/lib/server/classes";
 import { aiAvailable, courseBlock, errorMessage, FORMAT_RULES, NO_AI, structured } from "@/lib/server/ai";
-import { ContextSchema, parseBody, PolicySchema } from "@/lib/server/body";
+import { ContextSchema, parseBody } from "@/lib/server/body";
 import type { Question } from "@/lib/types";
 
 const Body = z.object({
   context: ContextSchema,
-  policy: PolicySchema.optional(),
+  classId: z.string().max(60).optional(),
   topicId: z.string().min(1).max(200),
   avoid: z.array(z.string().max(4000)).max(40).optional(),
 });
@@ -25,10 +27,13 @@ const Questions = z.object({
 });
 
 export async function POST(req: Request) {
+  const auth = await requireUser(req, { ai: true });
+  if (!auth.ok) return auth.response;
   if (!aiAvailable()) return NO_AI();
   const body = await parseBody(req, Body);
   if (!body.ok) return body.response;
-  const { context, policy, topicId, avoid } = body.data;
+  const { context, classId, topicId, avoid } = body.data;
+  const policy = policyFor(auth.user, classId, context.courseCode);
 
   const system = `You write practice questions for a study app used by Georgia Tech students. The questions are how the app measures whether the student has learned a topic, and they are reused later for spaced review, so each one must stand on its own and have one defensible answer.
 

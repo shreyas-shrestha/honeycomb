@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { RequireUser } from "@/components/RequireUser";
 import { useState } from "react";
 import { QuestionCard } from "@/components/QuestionCard";
 import { Empty, Loading } from "@/components/ui";
 import { dueLabel, topicContext, useAiStatus } from "@/lib/client";
 import { isDue } from "@/lib/mastery";
-import { actions, getState, useHydrated } from "@/lib/store";
+import { actions, getState } from "@/lib/store";
 import { PASS_SCORE, type Course, type Question, type Topic } from "@/lib/types";
 
 interface Item {
@@ -47,10 +48,10 @@ function Queue({ aiOn }: { aiOn: boolean }) {
       <Empty title="Nothing to review right now">
         <p>
           {nextDue
-            ? `Your next review is due ${dueLabel(nextDue)}. Reviews are spaced so each one lands just before you would forget.`
+            ? `Your next review is due ${dueLabel(nextDue)}.`
             : "Finish a study session and its topic will come back here on a schedule."}
         </p>
-        <Link href="/course" className="btn btn-honey mt-4">Open study plan</Link>
+        <Link href="/course" className="btn btn-primary mt-4">Open study plan</Link>
       </Empty>
     );
   }
@@ -59,8 +60,8 @@ function Queue({ aiOn }: { aiOn: boolean }) {
     const right = scores.filter((s) => s >= PASS_SCORE).length;
     return (
       <Empty title="Review complete">
-        <p>{right} of {items.length} recalled correctly. Missed topics come back sooner; the rest move further out.</p>
-        <Link href="/course" className="btn btn-honey mt-4">Open study plan</Link>
+        <p>{right} of {items.length} correct. The ones you missed come back sooner.</p>
+        <Link href="/course" className="btn btn-primary mt-4">Open study plan</Link>
       </Empty>
     );
   }
@@ -70,7 +71,7 @@ function Queue({ aiOn }: { aiOn: boolean }) {
     <div className="mx-auto max-w-2xl space-y-4">
       <header>
         <h1 className="title">Review</h1>
-        <p className="mt-1.5 text-sm leading-relaxed text-muted"><span className="tabular-nums">{i + 1} of {items.length}</span> · topics are mixed, because switching between them is what the exam asks of you.</p>
+        <p className="mt-1.5 text-sm leading-relaxed text-muted"><span className="tabular-nums">{i + 1} of {items.length}</span> · topics from all your courses, in mixed order</p>
       </header>
       <QuestionCard
         key={`${question.id}:${i}`}
@@ -92,9 +93,16 @@ function Queue({ aiOn }: { aiOn: boolean }) {
   );
 }
 
-export default function ReviewPage() {
-  const hydrated = useHydrated();
+function ReviewScreen() {
   const aiOn = useAiStatus();
-  if (!hydrated || aiOn === null) return <Loading />;
+  if (aiOn === null) return <Loading />;
   return <Queue aiOn={aiOn} />;
+}
+
+export default function ReviewPage() {
+  return (
+    <RequireUser>
+      <ReviewScreen />
+    </RequireUser>
+  );
 }

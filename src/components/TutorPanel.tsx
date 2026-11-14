@@ -4,19 +4,20 @@ import { useEffect, useRef, useState } from "react";
 import { errorText, streamPost } from "@/lib/client";
 import { HELP_LEVELS, type ChatMessage, type InstructorPolicy, type TopicContext } from "@/lib/types";
 import { Markdown } from "./Markdown";
-import { KeyHelp, Notice } from "./ui";
+import { Notice } from "./ui";
 
 interface Props {
   context: TopicContext;
-  policy: InstructorPolicy;
+  policy: InstructorPolicy; // shown to the learner; the server applies the real rules from classId
+  classId?: string;
   aiPolicy: string;
   aiOn: boolean;
   question?: { prompt: string; solution: string; answered: boolean };
 }
 
-const STARTERS = ["Give me a hint", "I don't get why this works", "Quiz me on this"];
+const STARTERS = ["Give me a hint", "I don’t get why this works", "Quiz me on this"];
 
-export function TutorPanel({ context, policy, aiPolicy, aiOn, question }: Props) {
+export function TutorPanel({ context, policy, classId, aiPolicy, aiOn, question }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [reply, setReply] = useState<string | null>(null); // the answer being streamed
   const [draft, setDraft] = useState("");
@@ -38,7 +39,7 @@ export function TutorPanel({ context, policy, aiPolicy, aiOn, question }: Props)
     setError("");
     setReply("");
     try {
-      const full = await streamPost("/api/tutor", { context, policy, aiPolicy, question, messages: history }, setReply);
+      const full = await streamPost("/api/tutor", { context, classId, aiPolicy, question, messages: history }, setReply);
       setMessages([...history, { role: "assistant", content: full }]);
     } catch (e) {
       // A failed reply is shown as an error and kept out of the conversation sent to the model.
@@ -52,7 +53,7 @@ export function TutorPanel({ context, policy, aiPolicy, aiOn, question }: Props)
     <aside className={`card flex max-h-[70dvh] flex-col self-start lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] ${messages.length > 0 ? "min-h-[20rem]" : ""}`} aria-label="Tutor">
       <div className="border-b border-line px-4 py-3">
         <h2 className="card-title">Tutor</h2>
-        <p className="text-sm text-muted">{level} · set by your course</p>
+        <p className="text-sm text-muted">{level} · {classId ? "set by your instructor" : "the default for self-study"}</p>
       </div>
       <div ref={scroller} className="flex-1 space-y-3 overflow-y-auto px-4 py-4" aria-live="polite">
         {messages.length === 0 && !busy && (
@@ -67,13 +68,13 @@ export function TutorPanel({ context, policy, aiPolicy, aiOn, question }: Props)
                 </div>
               </>
             ) : (
-              <p>The tutor needs an OpenAI API key. <KeyHelp /> Lessons and questions in the sample course work without it.</p>
+              <p>The tutor needs AI, which is off on this site. Lessons and questions in the sample course work without it.</p>
             )}
           </div>
         )}
         {messages.map((m, i) =>
           m.role === "user" ? (
-            <div key={i} className="ml-6 whitespace-pre-wrap rounded-xl bg-honey-soft px-3 py-2 text-sm">{m.content}</div>
+            <div key={i} className="ml-6 whitespace-pre-wrap rounded-[10px] bg-panel px-3 py-2 text-sm">{m.content}</div>
           ) : (
             <Markdown key={i} className="prose-sm mr-2">{m.content}</Markdown>
           ),

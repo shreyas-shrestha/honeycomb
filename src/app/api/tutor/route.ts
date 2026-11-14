@@ -1,11 +1,13 @@
 import { z } from "zod";
+import { requireUser } from "@/lib/server/auth";
+import { policyFor } from "@/lib/server/classes";
 import { aiAvailable, courseBlock, FORMAT_RULES, levelNote, NO_AI, streamText, untagged } from "@/lib/server/ai";
-import { ContextSchema, parseBody, PolicySchema } from "@/lib/server/body";
+import { ContextSchema, parseBody } from "@/lib/server/body";
 import type { HelpLevel } from "@/lib/types";
 
 const Body = z.object({
   context: ContextSchema,
-  policy: PolicySchema,
+  classId: z.string().max(60).optional(),
   messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(8000) })).min(1).max(60),
   question: z.object({ prompt: z.string().max(8000), solution: z.string().max(12_000), answered: z.boolean() }).optional(),
   aiPolicy: z.string().max(2000).optional(),
@@ -21,10 +23,14 @@ const HELP: Record<HelpLevel, string> = {
 };
 
 export async function POST(req: Request) {
+  const auth = await requireUser(req, { ai: true });
+  if (!auth.ok) return auth.response;
   if (!aiAvailable()) return NO_AI();
   const body = await parseBody(req, Body);
   if (!body.ok) return body.response;
-  const { context, policy, question, aiPolicy } = body.data;
+  const { context, classId, question, aiPolicy } = body.data;
+  // The help level comes from the student's class membership on the server, never from the request.
+  const policy = policyFor(auth.user, classId, context.courseCode);
 
   const history = body.data.messages.filter((m) => m.content.trim()).slice(-30);
   if (history.at(-1)?.role !== "user") return Response.json({ error: "Ask a question first." }, { status: 400 });

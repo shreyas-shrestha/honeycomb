@@ -43,6 +43,67 @@ export interface Course {
   basis: "syllabus" | "web" | "demo"; // what the course map was built from
   sources: Source[]; // web pages used when there was no syllabus
   createdAt: string;
+  // Set when the course was joined with a class code; the class's instructor sets the tutor rules.
+  classId?: string;
+  classCode?: string;
+}
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: "student" | "instructor";
+}
+
+// One step of an interactive lesson. Text fields are Markdown, except trace
+// cells and the sentence and words of a fill block, which are plain text.
+export type Block =
+  | { kind: "text"; title: string; body: string }
+  | { kind: "check"; prompt: string; options: string[]; answer: number; why: string }
+  | { kind: "order"; prompt: string; steps: string[]; why: string } // steps are stored in the correct order
+  | { kind: "fill"; prompt: string; parts: string[]; blanks: string[]; bank: string[]; why: string } // parts.length === blanks.length + 1
+  | { kind: "match"; prompt: string; pairs: { left: string; right: string }[] }
+  | { kind: "trace"; title: string; frames: { caption: string; cells: string[]; active: number[] }[] }
+  | { kind: "reveal"; prompt: string; answer: string };
+
+export type BlockKind = Block["kind"];
+
+export interface Experience {
+  topicId: string;
+  blocks: Block[];
+  createdAt: string; // also identifies this version of the lesson
+}
+
+// What an instructor publishes and a student receives when joining with a code.
+export interface ClassBundle {
+  course: Course;
+  questions: Record<string, Question[]>;
+  lessons: Record<string, string>;
+  experiences: Record<string, Experience>;
+}
+
+// Class-wide numbers for one topic, shown to the instructor.
+export interface TopicInsight {
+  topicId: string;
+  title: string;
+  students: number;
+  mastery: number;
+}
+
+export interface ClassInsights {
+  students: number;
+  active: number;
+  minStudents: number; // a topic is only reported once this many students have practiced it
+  topics: TopicInsight[];
+}
+
+export interface ClassSummary {
+  id: string;
+  code: string;
+  courseId: string;
+  title: string;
+  students: number;
+  policy: InstructorPolicy;
 }
 
 export interface Question {

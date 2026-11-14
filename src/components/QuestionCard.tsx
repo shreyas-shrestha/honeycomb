@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { errorText, postJSON } from "@/lib/client";
 import type { Grade, Question, TopicContext } from "@/lib/types";
 import { Markdown } from "./Markdown";
-import { Notice, RubricCheck, VerdictLine } from "./ui";
+import { Mark, Notice, RubricCheck, VerdictLine } from "./ui";
 
 const CONFIDENCE = [
   { v: 1, label: "Guessing" },
@@ -17,6 +17,7 @@ interface Props {
   context: TopicContext;
   aiOn: boolean;
   eyebrow?: string;
+  scored?: boolean; // false for the warm-up, where being wrong is expected
   nextLabel?: string;
   onResult: (score: number, confidence: number) => void;
   onNext: () => void;
@@ -25,7 +26,7 @@ interface Props {
 
 // One practice item. The learner commits to an answer and a confidence level
 // before anything is revealed. Mount with key={question.id} to reset.
-export function QuestionCard({ question: q, context, aiOn, eyebrow, nextLabel = "Next", onResult, onNext, onAnswered }: Props) {
+export function QuestionCard({ question: q, context, aiOn, eyebrow, scored = true, nextLabel = "Next", onResult, onNext, onAnswered }: Props) {
   const [choice, setChoice] = useState<number | null>(null);
   const [text, setText] = useState("");
   const [confidence, setConfidence] = useState<number | null>(null);
@@ -73,8 +74,8 @@ export function QuestionCard({ question: q, context, aiOn, eyebrow, nextLabel = 
     }
   }
 
-  const overconfident = grade && grade.score < 0.5 && confidence === 3;
-  const underconfident = grade && grade.score >= 0.8 && confidence === 1;
+  const overconfident = scored && grade && grade.score < 0.5 && confidence === 3;
+  const underconfident = scored && grade && grade.score >= 0.8 && confidence === 1;
 
   return (
     <div className="card p-5 sm:p-6">
@@ -86,7 +87,7 @@ export function QuestionCard({ question: q, context, aiOn, eyebrow, nextLabel = 
           {q.choices.map((c, i) => {
             const letter = String.fromCharCode(65 + i);
             const state = phase === "done" ? (i === q.answerIndex ? "right" : i === choice ? "wrong" : undefined) : undefined;
-            const badge = state === "right" ? "border-leaf bg-leaf text-paper" : state === "wrong" ? "border-rose bg-rose text-paper" : "border-line";
+            const badge = state === "right" ? "border-leaf bg-leaf text-surface" : state === "wrong" ? "border-rose bg-rose text-surface" : "border-line";
             return (
               <button
                 key={i}
@@ -100,7 +101,7 @@ export function QuestionCard({ question: q, context, aiOn, eyebrow, nextLabel = 
                 onClick={() => setChoice(i)}
               >
                 <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${badge}`}>
-                  {state === "right" ? "✓" : state === "wrong" ? "✕" : letter}
+                  {state === "right" ? <Mark kind="check" /> : state === "wrong" ? <Mark kind="cross" /> : letter}
                 </span>
                 <Markdown className="min-w-0 flex-1">{c}</Markdown>
                 {state && (
@@ -138,7 +139,7 @@ export function QuestionCard({ question: q, context, aiOn, eyebrow, nextLabel = 
               ))}
             </div>
           </div>
-          <button type="button" className="btn btn-honey w-full sm:ml-auto sm:w-auto" disabled={!hasAnswer || confidence === null} onClick={check}>
+          <button type="button" className="btn btn-primary w-full sm:ml-auto sm:w-auto" disabled={!hasAnswer || confidence === null} onClick={check}>
             Check answer
           </button>
         </div>
@@ -149,12 +150,12 @@ export function QuestionCard({ question: q, context, aiOn, eyebrow, nextLabel = 
 
       {revealed && (
         <div className="mt-5 space-y-4 border-t border-line pt-5">
-          {phase === "done" && grade && <VerdictLine score={grade.score} labels={{ correct: "Correct", incorrect: "Not yet" }} />}
+          {phase === "done" && grade && <VerdictLine score={grade.score} />}
           {grade?.feedback && <Markdown>{grade.feedback}</Markdown>}
-          {overconfident && <Notice tone="rose">You were certain and it was wrong. That is the most useful kind of miss: read the solution closely, because this is a belief to fix, not a gap to fill.</Notice>}
-          {underconfident && <Notice tone="leaf">You said you were guessing and got it right. You may know this better than you think.</Notice>}
+          {overconfident && <Notice tone="rose">You marked this Certain and got it wrong, so it counts more against your readiness than a wrong guess would. Read the solution before you move on.</Notice>}
+          {underconfident && <Notice tone="leaf">You marked this Guessing and got it right.</Notice>}
           <div>
-            <h3 className="eyebrow">Solution</h3>
+            <h3 className="card-title">Solution</h3>
             <Markdown className="mt-1.5">{q.solution}</Markdown>
           </div>
 
@@ -168,7 +169,7 @@ export function QuestionCard({ question: q, context, aiOn, eyebrow, nextLabel = 
 
           {phase === "done" && grade && grade.missed.length > 0 && (
             <div>
-              <h3 className="eyebrow">What was missing</h3>
+              <h3 className="card-title">What was missing</h3>
               <ul className="mt-1.5 grid gap-1 pl-5 text-sm">
                 {grade.missed.map((m, i) => <li key={i} className="list-disc"><Markdown className="prose-sm">{m}</Markdown></li>)}
               </ul>
@@ -177,7 +178,7 @@ export function QuestionCard({ question: q, context, aiOn, eyebrow, nextLabel = 
 
           {phase === "done" && (
             <div className="flex justify-end">
-              <button type="button" className="btn btn-honey w-full sm:w-auto" onClick={onNext}>{nextLabel}</button>
+              <button type="button" className="btn btn-primary w-full sm:w-auto" onClick={onNext}>{nextLabel}</button>
             </div>
           )}
         </div>

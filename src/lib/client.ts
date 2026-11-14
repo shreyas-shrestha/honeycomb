@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { daysUntil, localISO } from "./mastery";
-import { STREAM_ERROR, type Course, type Topic, type TopicContext, type TopicState } from "./types";
+import { DEFAULT_POLICY, STREAM_ERROR, type Course, type InstructorPolicy, type Topic, type TopicContext, type TopicState } from "./types";
 
 export function topicContext(course: Course, topic: Topic, state?: TopicState): TopicContext {
   return {
@@ -18,17 +18,30 @@ export function topicContext(course: Course, topic: Topic, state?: TopicState): 
 }
 
 // Every call to our own API goes through here so failures surface the same way.
-async function request(url: string, body?: unknown, signal?: AbortSignal): Promise<Response> {
+type Method = "GET" | "POST" | "PUT" | "DELETE";
+
+export async function request(url: string, body?: unknown, signal?: AbortSignal, method: Method = body === undefined ? "GET" : "POST"): Promise<Response> {
   const res = await fetch(url, {
-    method: body === undefined ? "GET" : "POST",
+    method,
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
   });
   if (res.ok) return res;
   const j = (await res.json().catch(() => ({}))) as { error?: string };
-  throw new Error(j.error ?? `Request failed (${res.status})`);
+  throw new HttpError(res.status, j.error ?? `Request failed (${res.status})`);
 }
+
+export class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+export const sendJSON = async <T,>(method: "PUT" | "DELETE", url: string, body: unknown) => (await (await request(url, body, undefined, method)).json()) as T;
 
 export async function getJSON<T>(url: string, signal?: AbortSignal): Promise<T> {
   return (await (await request(url, undefined, signal)).json()) as T;
@@ -74,6 +87,22 @@ export function useAiStatus(): boolean | null {
     return () => ctrl.abort();
   }, []);
   return ai;
+}
+
+// The tutor rules for a course: the class's when it was joined with a code, the defaults otherwise.
+export function usePolicy(classId: string | undefined): InstructorPolicy {
+  const [loaded, setLoaded] = useState<{ id: string; policy: InstructorPolicy } | null>(null);
+  useEffect(() => {
+    if (!classId) return;
+    const ctrl = new AbortController();
+    getJSON<{ policy: InstructorPolicy }>(`/api/classes/policy?id=${encodeURIComponent(classId)}`, ctrl.signal)
+      .then(({ policy }) => setLoaded({ id: classId, policy }))
+      .catch(() => {
+        // Fall back to the defaults; the server applies the real rules either way.
+      });
+    return () => ctrl.abort();
+  }, [classId]);
+  return classId && loaded?.id === classId ? loaded.policy : DEFAULT_POLICY;
 }
 
 export const pct = (x: number) => `${Math.round(x * 100)}%`;

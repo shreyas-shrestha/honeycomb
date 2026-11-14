@@ -1,5 +1,6 @@
 import type OpenAI from "openai";
 import { z } from "zod";
+import { requireUser } from "@/lib/server/auth";
 import { localISO } from "@/lib/mastery";
 import { aiAvailable, errorMessage, NO_AI, research, structured, untagged } from "@/lib/server/ai";
 import { parseBody } from "@/lib/server/body";
@@ -82,6 +83,8 @@ function idMap(prefix: string, keys: string[]): { ids: string[]; byKey: Map<stri
 }
 
 export async function POST(req: Request) {
+  const auth = await requireUser(req, { ai: true });
+  if (!auth.ok) return auth.response;
   if (!aiAvailable()) return NO_AI();
   const body = await parseBody(req, Body, MAX_BODY_BYTES);
   if (!body.ok) return body.response;

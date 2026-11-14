@@ -2,33 +2,35 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bar, Empty, Loading, Notice } from "@/components/ui";
+import { useState } from "react";
+import { HexMap } from "@/components/HexMap";
+import { RequireUser } from "@/components/RequireUser";
+import { Bar, Empty, Notice } from "@/components/ui";
 import { formatDay, pct, useAiStatus } from "@/lib/client";
 import { CALIBRATION_NOTICE, calibrationGap, daysUntil, examReadiness, inDays, isDue, readiness, upNext, weakPrereqs } from "@/lib/mastery";
-import { actions, useHydrated, useStore } from "@/lib/store";
+import { actions, useStore } from "@/lib/store";
 import type { Topic, TopicState } from "@/lib/types";
 
 function status(s: TopicState | undefined): { label: string; cls: string } {
-  if (!s || s.attempts === 0) return { label: "New", cls: "bg-line text-muted" };
-  if (isDue(s)) return { label: "Review due", cls: "bg-honey text-ink" };
-  if (s.mastery >= 0.8) return { label: "Strong", cls: "bg-leaf-soft text-leaf" };
-  return { label: "Learning", cls: "bg-honey-soft text-honey-deep" };
+  if (!s || s.attempts === 0) return { label: "New", cls: "text-muted" };
+  if (isDue(s)) return { label: "Review due", cls: "text-honey-deep" };
+  if (s.mastery >= 0.8) return { label: "Strong", cls: "text-leaf" };
+  return { label: "Learning", cls: "text-honey-deep" };
 }
 
-export default function CoursePage() {
+function CourseScreen() {
   const router = useRouter();
-  const hydrated = useHydrated();
   const aiOn = useAiStatus();
   const course = useStore((s) => (s.activeCourseId ? s.courses[s.activeCourseId] : undefined) ?? Object.values(s.courses)[0]);
   const states = useStore((s) => s.topicState);
   const pools = useStore((s) => s.questions);
+  const [picked, setPicked] = useState<string | null>(null);
 
-  if (!hydrated) return <Loading />;
   if (!course) {
     return (
       <Empty title="No course yet">
-        <p>Add a course, or load the sample.</p>
-        <Link href="/" className="btn btn-honey mt-4">Go to courses</Link>
+        <p>Add a course, join a class, or load the sample.</p>
+        <Link href="/" className="btn btn-primary mt-4">Go to courses</Link>
       </Empty>
     );
   }
@@ -40,22 +42,35 @@ export default function CoursePage() {
   // A topic can be studied when the AI can write for it or it has ready-made questions.
   const usable = (t: Topic) => aiOn === true || Boolean(pools[t.id]?.length);
   const startLabel = (t: Topic) => (states[t.id]?.attempts ? "Continue" : "Start");
-  const suggestions = upNext(course, states, 3);
+  const next = upNext(course, states, course.topics.length).find((s) => usable(s.topic));
+  const selected = course.topics.find((t) => t.id === picked) ?? next?.topic ?? course.topics[0];
   const gap = calibrationGap(course.topics.map((t) => states[t.id]).filter((s): s is TopicState => Boolean(s)));
-  const locked = <span className="tag justify-self-start bg-line text-muted">Locked</span>;
+  const number = (t: Topic) => course.topics.indexOf(t) + 1;
+  const selState = states[selected.id];
+  const selWeak = weakPrereqs(course, selected, states);
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-12">
       <header>
-        <p className="eyebrow">{course.code}{course.basis === "demo" ? " · sample" : ""}</p>
+        <p className="eyebrow">{course.code}{course.basis === "demo" ? " · sample" : ""}{course.classCode ? ` · class ${course.classCode}` : ""}</p>
         <h1 className="title mt-1">{course.title}</h1>
         <p className="mt-1.5 text-sm text-muted">{[course.instructor, course.term, `${course.topics.length} topics`].filter(Boolean).join(" · ")}</p>
+
+        {next ? (
+          <div className="mt-7 max-w-2xl">
+            <p className="text-sm text-muted">Up next{next.reason === "Heavily tested" || next.reason === "Next in the syllabus" ? "" : ` · ${next.reason.toLowerCase()}`}</p>
+            <h2 className="mt-1 text-2xl font-semibold leading-tight">{next.topic.title}</h2>
+            <p className="mt-1.5 leading-relaxed text-muted">{next.topic.summary}</p>
+            <button type="button" className="btn btn-primary mt-4" onClick={() => start(next.topic)}>{startLabel(next.topic)} this topic</button>
+          </div>
+        ) : (
+          <p className="mt-6 text-muted">Everything available is strong and nothing is due. Come back when reviews come up.</p>
+        )}
       </header>
 
       {aiOn === false && course.basis === "demo" && (
-        <Notice>Four sample topics have ready-made lessons and questions: Big-O, binary search trees, heaps and HashMaps. The rest are locked, and the tutor is off, until an OpenAI API key is set.</Notice>
+        <Notice>Four sample topics are ready: Big-O, binary search trees, heaps and HashMaps. The other topics and the tutor need AI, which is off on this site.</Notice>
       )}
-
       {course.basis === "web" && (
         <Notice>
           Built from public web pages, not your syllabus, so topics and dates may be from an earlier term.
@@ -67,100 +82,111 @@ export default function CoursePage() {
         </Notice>
       )}
 
-      {course.exams.length > 0 && (
-        <section aria-labelledby="exams">
-          <h2 id="exams" className="eyebrow">Exams</h2>
-          <div className="panel mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {course.exams.map((e) => {
-              const d = daysUntil(e.date);
-              const past = d !== null && d < 0;
-              const r = examReadiness(course, e, states);
-              return (
-                <div key={e.id} className="card p-4">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <h3 className="card-title">{e.title}</h3>
-                    <span className="text-sm tabular-nums text-muted">{d === null ? "No date" : past ? "Done" : inDays(d)}</span>
-                  </div>
-                  <p className="mt-0.5 text-sm text-muted">
-                    {e.date ? formatDay(e.date) : "Date not in syllabus"}{e.weightPct ? ` · ${e.weightPct}% of grade` : ""}
-                  </p>
-                  {!past && (
-                    <div className="mt-3">
-                      <div className="mb-1.5 flex justify-between text-sm"><span className="text-muted">Readiness</span><span className="font-medium tabular-nums">{pct(r)}</span></div>
-                      <Bar value={r} label={`${e.title} readiness`} />
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+      <div className="grid items-start gap-x-10 gap-y-12 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <section aria-labelledby="map" className="card p-5 sm:p-6">
+          <h2 id="map" className="heading">Course map</h2>
+          <p className="mt-1 text-sm text-muted">One cell per topic, in syllabus order. A cell fills with honey as you learn the topic.</p>
+          <div className="mt-5">
+            <HexMap
+              selectedId={selected.id}
+              onSelect={setPicked}
+              topics={course.topics.map((t) => ({ id: t.id, title: t.title, mastery: readiness(states[t.id]), due: isDue(states[t.id]), locked: !usable(t) }))}
+            />
+          </div>
+          <div className="mt-5 border-t border-line pt-5" aria-live="polite">
+            <p className="text-sm text-muted">
+              Topic {number(selected)} · <span className={`tag ${status(selState).cls}`}>{status(selState).label}</span>
+              {selected.weight >= 3 && " · heavily tested"}
+            </p>
+            <h3 className="heading mt-1">{selected.title}</h3>
+            <p className="mt-1 text-sm leading-relaxed text-muted">{selected.summary}</p>
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm">
+              {selected.objectives.map((o, i) => <li key={i}>{o}</li>)}
+            </ul>
+            {selWeak.length > 0 && <p className="mt-3 text-sm text-muted">Builds on: {selWeak.map((p) => p.title).join(", ")}</p>}
+            <div className="mt-4 flex items-center gap-3">
+              <Bar value={readiness(selState)} label="Readiness" />
+              <span className="w-10 text-right text-sm font-semibold tabular-nums">{pct(readiness(selState))}</span>
+            </div>
+            <div className="mt-4">
+              {usable(selected) ? (
+                selected.id !== next?.topic.id && <button type="button" className="btn" onClick={() => start(selected)}>{startLabel(selected)} this topic</button>
+              ) : (
+                <p className="text-sm text-muted">Locked: this topic needs AI, which is off on this site.</p>
+              )}
+            </div>
           </div>
         </section>
-      )}
 
-      <section aria-labelledby="next">
-        <h2 id="next" className="eyebrow">Up next</h2>
-        {suggestions.length === 0 ? (
-          <p className="mt-3 text-sm">Everything is strong and nothing is due. Come back when reviews come up.</p>
-        ) : (
-          <div className="panel mt-3 grid gap-3 lg:grid-cols-3">
-            {suggestions.map(({ topic, reason }, i) => (
-              <div key={topic.id} className={`card flex flex-col gap-2 p-4 ${i === 0 ? "border-honey-edge ring-1 ring-honey-ledge" : ""}`}>
-                <p className="eyebrow">{reason}</p>
-                <h3 className="card-title">{topic.title}</h3>
-                <p className="text-sm leading-relaxed text-muted">{topic.summary}</p>
-                <div className="mt-auto pt-2">
-                  {usable(topic) ? (
-                    <button type="button" className={`btn w-full ${i === 0 ? "btn-honey" : ""}`} onClick={() => start(topic)}>{startLabel(topic)}</button>
-                  ) : locked}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        {gap !== null && Math.abs(gap) >= CALIBRATION_NOTICE && (
-          <p className="mt-3 text-sm text-muted">
-            {gap > 0
-              ? `Calibration: you rate yourself about ${Math.round(gap * 100)} points more confident than your results. Trust the review queue over the feeling of knowing it.`
-              : `Calibration: your results are about ${Math.round(-gap * 100)} points better than your confidence suggests.`}
-          </p>
-        )}
-      </section>
+        <section aria-labelledby="exams" className="ruled">
+          <h2 id="exams" className="heading">Exams</h2>
+          {course.exams.length === 0 ? (
+            <p className="mt-2 text-sm text-muted">No exams on file for this course.</p>
+          ) : (
+            <ul className="mt-1 divide-y divide-line">
+              {course.exams.map((e) => {
+                const d = daysUntil(e.date);
+                const past = d !== null && d < 0;
+                const r = examReadiness(course, e, states);
+                return (
+                  <li key={e.id} className="py-3">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="font-semibold">{e.title}</span>
+                      <span className="text-sm tabular-nums text-muted">{d === null ? "No date" : past ? "Done" : inDays(d)}</span>
+                    </div>
+                    <p className="text-sm text-muted">{e.date ? formatDay(e.date) : "Date not in syllabus"}{e.weightPct ? ` · ${e.weightPct}% of grade` : ""}</p>
+                    {!past && (
+                      <div className="mt-2 flex items-center gap-3">
+                        <Bar value={r} label={`${e.title} readiness`} />
+                        <span className="w-10 text-right text-sm font-semibold tabular-nums">{pct(r)}</span>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {gap !== null && Math.abs(gap) >= CALIBRATION_NOTICE && (
+            <p className="mt-3 text-sm leading-relaxed text-muted">
+              {gap > 0
+                ? `Your confidence ratings run about ${Math.round(gap * 100)} points above your results, so do the reviews even when a topic feels finished.`
+                : `Your results run about ${Math.round(-gap * 100)} points above your confidence ratings.`}
+            </p>
+          )}
+        </section>
+      </div>
 
-      <section aria-labelledby="map">
-        <h2 id="map" className="eyebrow">All topics</h2>
-        <div className="panel mt-3 space-y-3">
+      <section aria-labelledby="all" className="ruled">
+        <h2 id="all" className="heading">All topics</h2>
+        <div className="mt-3 grid gap-x-10 gap-y-6 md:grid-cols-2">
           {course.units.map((u) => {
             const topics = course.topics.filter((t) => t.unitId === u.id);
             if (!topics.length) return null;
             return (
-              <div key={u.id} className="card overflow-hidden">
-                <div className="flex items-baseline justify-between gap-3 border-b border-line px-4 py-3">
+              <div key={u.id}>
+                <div className="flex items-baseline justify-between gap-3">
                   <h3 className="card-title">{u.title}</h3>
                   {u.when && <span className="text-sm text-muted">{u.when}</span>}
                 </div>
-                <ul>
+                <ul className="mt-1">
                   {topics.map((t) => {
-                    const s = states[t.id];
-                    const st = status(s);
-                    const weak = weakPrereqs(course, t, states);
-                    const r = readiness(s);
+                    const st = status(states[t.id]);
+                    const on = usable(t);
                     return (
-                      <li key={t.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-4 py-3 last:border-b-0">
-                        <div className="min-w-0 flex-1 basis-64">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-medium">{t.title}</span>
-                            <span className={`tag ${st.cls}`}>{st.label}</span>
-                            {t.weight >= 3 && <span className="text-xs text-muted">Heavily tested</span>}
-                          </div>
-                          {weak.length > 0 && <p className="mt-0.5 text-sm text-muted">Builds on: {weak.map((p) => p.title).join(", ")}</p>}
-                        </div>
-                        <div className="grid w-full grid-cols-[1fr_2.5rem_5.5rem] items-center gap-3 sm:w-64">
-                          <Bar value={r} label={`${t.title} mastery`} />
-                          <span className="text-right text-sm tabular-nums text-muted">{pct(r)}</span>
-                          {usable(t) ? (
-                            <button type="button" className="btn btn-sm w-full translate-y-0.5" onClick={() => start(t)} aria-label={`${startLabel(t)} ${t.title}`}>{startLabel(t)}</button>
-                          ) : locked}
-                        </div>
+                      <li key={t.id}>
+                        <button
+                          type="button"
+                          disabled={!on}
+                          onClick={() => start(t)}
+                          aria-label={on ? undefined : `${t.title}, locked`}
+                          className="-mx-2 flex min-h-[2.75rem] w-[calc(100%+1rem)] items-start gap-3 rounded-[10px] px-2 py-2.5 text-left enabled:hover:bg-panel disabled:text-muted sm:items-center"
+                        >
+                          <span className="w-6 shrink-0 text-right text-sm tabular-nums text-muted">{number(t)}</span>
+                          <span className="min-w-0 flex-1 sm:truncate">{t.title}</span>
+                          {/* Locked rows are dimmed; the notice at the top says why. */}
+                          {on && <span className={`tag ${st.cls}`}>{st.label}</span>}
+                          {on && <span className="hidden w-10 text-right text-sm tabular-nums text-muted sm:inline">{pct(readiness(states[t.id]))}</span>}
+                        </button>
                       </li>
                     );
                   })}
@@ -172,27 +198,33 @@ export default function CoursePage() {
       </section>
 
       {(course.aiPolicy || course.grading.length > 0) && (
-        <section aria-labelledby="syllabus">
-          <h2 id="syllabus" className="eyebrow">From the syllabus</h2>
-          <div className="panel mt-3 grid gap-3 md:grid-cols-2">
-            {course.aiPolicy && (
-              <div className="card p-4 text-sm leading-relaxed">
-                <h3 className="card-title">What it says about AI</h3>
-                <p className="mt-1 text-muted">{course.aiPolicy}</p>
-                <p className="hint mt-2">A summary. Check the original before relying on it.</p>
-              </div>
-            )}
-            {course.grading.length > 0 && (
-              <div className="card p-4 text-sm">
-                <h3 className="card-title">Grade breakdown</h3>
-                <ul className="mt-1 text-muted">
-                  {course.grading.map((g, i) => <li key={i} className="flex justify-between py-0.5"><span>{g.name}</span><span className="tabular-nums">{g.pct}%</span></li>)}
-                </ul>
-              </div>
-            )}
-          </div>
+        <section aria-labelledby="syllabus" className="ruled grid gap-x-10 gap-y-6 md:grid-cols-2">
+          <h2 id="syllabus" className="sr-only">From the syllabus</h2>
+          {course.aiPolicy && (
+            <div className="text-sm leading-relaxed">
+              <h3 className="card-title">What the syllabus says about AI</h3>
+              <p className="mt-1 text-muted">{course.aiPolicy}</p>
+              <p className="hint mt-2">This is a summary. Check the original before relying on it.</p>
+            </div>
+          )}
+          {course.grading.length > 0 && (
+            <div className="text-sm">
+              <h3 className="card-title">Grade breakdown</h3>
+              <ul className="mt-1 text-muted">
+                {course.grading.map((g, i) => <li key={i} className="flex justify-between py-0.5"><span>{g.name}</span><span className="tabular-nums">{g.pct}%</span></li>)}
+              </ul>
+            </div>
+          )}
         </section>
       )}
     </div>
+  );
+}
+
+export default function CoursePage() {
+  return (
+    <RequireUser>
+      <CourseScreen />
+    </RequireUser>
   );
 }
