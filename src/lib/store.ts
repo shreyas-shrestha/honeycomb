@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { getJSON, sendJSON } from "./client";
+import { materialText } from "./course";
 import { recordAttempt } from "./mastery";
 import type { CheckScope, ClassBundle, Course, Experience, Material, ModeId, Question, TopicState } from "./types";
 
@@ -299,14 +300,4 @@ export function bundleOf(s: State, courseId: string): ClassBundle | null {
 }
 
 // What the student's uploads say about one topic, as text for a prompt. Empty when there is nothing.
-export function materialFor(s: State, courseId: string, topicId: string): string {
-  const parts: string[] = [];
-  for (const m of s.materials[courseId] ?? []) {
-    const t = m.byTopic[topicId];
-    if (!t) continue;
-    parts.push(`From "${m.name}" (${m.kind}). How this course asks questions: ${m.style}`);
-    if (t.notes) parts.push(t.notes);
-    if (t.examples.length) parts.push(`Example questions from it:\n${t.examples.map((e) => `- ${e}`).join("\n")}`);
-  }
-  return parts.join("\n\n").slice(0, 10_000);
-}
+export const materialFor = (s: State, courseId: string, topicId: string) => materialText(s.materials[courseId] ?? [], topicId);

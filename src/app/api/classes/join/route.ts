@@ -13,7 +13,13 @@ export async function POST(req: Request) {
   if (rateLimited(`join:${auth.user.id}`, 10, 10 * 60_000)) return Response.json({ error: "Too many attempts. Wait a few minutes and try again." }, { status: 429 });
   const body = await parseBody(req, Join);
   if (!body.ok) return body.response;
-  const result = await joinClass(auth.user, body.data.code);
+  let result: Awaited<ReturnType<typeof joinClass>>;
+  try {
+    result = await joinClass(auth.user, body.data.code);
+  } catch (e) {
+    // The class's questions did not fit in this account's vault.
+    return Response.json({ error: e instanceof Error ? e.message : "Could not join the class." }, { status: 409 });
+  }
   if (result.ok) return Response.json({ bundle: result.bundle });
   return result.reason === "own-class"
     ? Response.json({ error: "That is your own class. Manage it from Classes." }, { status: 400 })

@@ -9,7 +9,7 @@ import { Bar, Empty, Loading, Notice, RubricCheck, VerdictLine } from "@/compone
 import { errorText, pct, postJSON, topicContext, useAiStatus } from "@/lib/client";
 import { readiness } from "@/lib/mastery";
 import { actions, getState, materialFor, useStore } from "@/lib/store";
-import { PASS_SCORE, type CheckScope, type Course, type Question, type Review, type Topic } from "@/lib/types";
+import { PASS_SCORE, type AnswerKey, type CheckScope, type Course, type Question, type Review, type Topic } from "@/lib/types";
 
 const MAX_PHOTOS = 3;
 const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
@@ -22,6 +22,13 @@ interface Answer {
   photos: { name: string; data: string }[];
 }
 const blank = (): Answer => ({ choice: null, text: "", photos: [] });
+const BLANK: Review = { score: 0, lines: [], feedback: "No answer was given.", fullCredit: "" };
+// One marked question: its score (null until marked by hand), the reviewer's lines if any, and the key.
+interface Marked {
+  score: number | null;
+  review: Review | null;
+  key: AnswerKey;
+}
 const answered = (q: Question, a: Answer) => (q.kind === "mcq" ? a.choice !== null : a.text.trim().length > 0 || a.photos.length > 0);
 
 function readPhoto(file: File): Promise<{ name: string; data: string }> {
@@ -68,10 +75,13 @@ function Blind({ course, scope, aiOn, onRetry }: { course: Course; scope: CheckS
   const [i, setI] = useState(0);
   const [scores, setScores] = useState<(number | null)[]>([]);
   const [reviews, setReviews] = useState<(Review | null)[]>([]);
+  const [keys, setKeys] = useState<AnswerKey[]>([]);
   const [error, setError] = useState("");
   const recorded = useRef(false);
-  // Reviews that came back, kept so a failed hand-in only re-marks what is missing.
-  const kept = useRef(new Map<number, Review>());
+  // What has come back for each question, kept so a failed hand-in only re-marks what is missing.
+  const kept = useRef(new Map<number, Marked>());
+  // The questions already marked after a hand-in that failed partway. Their answers are final.
+  const [locked, setLocked] = useState<number[]>([]);
 
   async function begin() {
     setError("");
@@ -100,49 +110,52 @@ function Blind({ course, scope, aiOn, onRetry }: { course: Course; scope: CheckS
     for (const [topicId, got] of byTopic) actions.attempt(topicId, got.reduce((a, b) => a + b, 0) / got.length, null, true);
   }
 
+  // Hands one question to the server, which holds the key. Multiple choice is
+  // scored there; written work is marked by the reviewer, or, with no reviewer,
+  // comes back with the key for the student to mark.
+  async function mark(q: Question, a: Answer): Promise<Marked> {
+    const answer = (body: object) => postJSON<{ grade: { score: number } | null; key: AnswerKey }>("/api/answer", { questionId: q.id, ...body });
+    if (q.kind === "mcq") {
+      if (a.choice === null) return { score: 0, review: null, key: (await answer({ reveal: true })).key };
+      const r = await answer({ choice: a.choice });
+      return { score: r.grade?.score ?? 0, review: null, key: r.key };
+    }
+    if (!answered(q, a)) return { score: 0, review: BLANK, key: (await answer({ reveal: true })).key };
+    if (!aiOn) return { score: null, review: null, key: (await answer({ reveal: true })).key };
+    const topic = course.topics.find((t) => t.id === q.topicId) ?? topics[0];
+    const r = await postJSON<{ review: Review; key: AnswerKey }>("/api/review", {
+      context: topicContext(course, topic),
+      questionId: q.id,
+      answer: a.text,
+      photos: a.photos.map((p) => p.data),
+      material: materialFor(getState(), course.id, topic.id) || undefined,
+    });
+    return { score: r.review.score, review: r.review, key: r.key };
+  }
+
   async function handIn() {
     setError("");
     setStage("marking");
-    const auto = questions.map((q, k) => (q.kind === "mcq" ? (answers[k].choice === q.answerIndex ? 1 : 0) : null));
-    if (!aiOn) {
-      setReviews(questions.map(() => null));
-      setStage("results");
-      return finish(auto);
+    const settled = await Promise.allSettled(
+      questions.map(async (q, k) => {
+        const done = kept.current.get(k) ?? (await mark(q, answers[k]));
+        kept.current.set(k, done);
+        return done;
+      }),
+    );
+    const failed = settled.find((r) => r.status === "rejected");
+    if (failed) {
+      const missing = settled.filter((r) => r.status === "rejected").length;
+      setError(`${errorText(failed.reason, "Marking failed.")} ${missing} of ${questions.length} answers still need marking; the rest are marked and cannot be changed.`);
+      setLocked([...kept.current.keys()]);
+      setStage("answering");
+      return;
     }
-    {
-      const s = getState();
-      const settled = await Promise.allSettled(
-        questions.map(async (q, k) => {
-          if (q.kind === "mcq") return null;
-          const topic = course.topics.find((t) => t.id === q.topicId) ?? topics[0];
-          if (!answered(q, answers[k])) return { score: 0, lines: [], feedback: "No answer was given.", fullCredit: "" } satisfies Review;
-          const done = kept.current.get(k);
-          if (done) return done;
-          const { review } = await postJSON<{ review: Review }>("/api/review", {
-            context: topicContext(course, topic),
-            prompt: q.prompt,
-            solution: q.solution,
-            rubric: q.rubric,
-            answer: answers[k].text,
-            photos: answers[k].photos.map((p) => p.data),
-            material: materialFor(s, course.id, topic.id) || undefined,
-          });
-          kept.current.set(k, review);
-          return review;
-        }),
-      );
-      const failed = settled.find((r) => r.status === "rejected");
-      if (failed) {
-        const missing = settled.filter((r) => r.status === "rejected").length;
-        setError(`${errorText(failed.reason, "Marking failed.")} ${missing} of ${questions.length} answers still need marking; the rest are kept.`);
-        setStage("answering");
-        return;
-      }
-      const marked = settled.map((r) => (r.status === "fulfilled" ? r.value : null));
-      setReviews(marked);
-      setStage("results");
-      finish(marked.map((r, k) => r?.score ?? auto[k]));
-    }
+    const marked = settled.map((r) => (r as PromiseFulfilledResult<Marked>).value);
+    setReviews(marked.map((m) => m.review));
+    setKeys(marked.map((m) => m.key));
+    setStage("results");
+    finish(marked.map((m) => m.score));
   }
 
   if (stage === "intro" || stage === "loading") {
@@ -170,9 +183,11 @@ function Blind({ course, scope, aiOn, onRetry }: { course: Course; scope: CheckS
   if (stage === "answering" || stage === "marking") {
     const q = questions[i];
     const a = answers[i];
+    // An answer is final once it has been marked, and while the set is being marked.
+    const final = stage === "marking" || locked.includes(i);
     const set = (patch: Partial<Answer>) => {
-      kept.current.delete(i); // a changed answer needs marking again
-      setAnswers(answers.map((x, k) => (k === i ? { ...x, ...patch } : x)));
+      if (final) return;
+      setAnswers((all) => all.map((x, k) => (k === i ? { ...x, ...patch } : x)));
     };
     const last = i === questions.length - 1;
     const unanswered = questions.filter((x, k) => !answered(x, answers[k])).length;
@@ -196,10 +211,11 @@ function Blind({ course, scope, aiOn, onRetry }: { course: Course; scope: CheckS
         </header>
         <div className="card p-5 sm:p-6">
           <Markdown>{q.prompt}</Markdown>
+          {final && <p className="hint mt-3">This answer has been marked and cannot be changed.</p>}
           {q.kind === "mcq" ? (
             <div className="mt-4 grid gap-2" role="radiogroup" aria-label="Answer choices">
               {q.choices.map((c, k) => (
-                <button key={k} type="button" role="radio" aria-checked={a.choice === k} className="choice" onClick={() => set({ choice: k })}>
+                <button key={k} type="button" role="radio" aria-checked={a.choice === k} disabled={final} className="choice" onClick={() => set({ choice: k })}>
                   <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line-ui text-xs font-semibold">{String.fromCharCode(65 + k)}</span>
                   <Markdown className="min-w-0 flex-1">{c}</Markdown>
                 </button>
@@ -209,18 +225,18 @@ function Blind({ course, scope, aiOn, onRetry }: { course: Course; scope: CheckS
             <div className="mt-4 space-y-3">
               <div>
                 <label className="label" htmlFor="blind-answer">Your answer, with your reasoning</label>
-                <textarea id="blind-answer" className="field min-h-40" value={a.text} onChange={(e) => set({ text: e.target.value })} placeholder="Write it the way you would on the exam paper." />
+                <textarea id="blind-answer" className="field min-h-40" disabled={final} value={a.text} onChange={(e) => set({ text: e.target.value })} placeholder="Write it the way you would on the exam paper." />
               </div>
               {aiOn && (
                 <div>
                   <label className="label" htmlFor="blind-photos">Or photos of your written work <span className="font-normal text-muted">· up to {MAX_PHOTOS}</span></label>
-                  <input id="blind-photos" type="file" accept="image/png,image/jpeg,image/webp" multiple disabled={a.photos.length >= MAX_PHOTOS} className="block w-full text-sm text-muted file:mr-3 file:min-h-[2.75rem] file:rounded-full file:border file:border-line-ui file:bg-surface file:px-4 file:text-sm file:font-semibold file:text-ink" onChange={(e) => { void addPhotos(e.target.files); e.target.value = ""; }} />
+                  <input id="blind-photos" type="file" accept="image/png,image/jpeg,image/webp" multiple disabled={final || a.photos.length >= MAX_PHOTOS} className="block w-full text-sm text-muted file:mr-3 file:min-h-[2.75rem] file:rounded-full file:border file:border-line-ui file:bg-surface file:px-4 file:text-sm file:font-semibold file:text-ink" onChange={(e) => { void addPhotos(e.target.files); e.target.value = ""; }} />
                   {a.photos.length > 0 && (
                     <ul className="mt-2 space-y-1 text-sm">
                       {a.photos.map((p, k) => (
                         <li key={k} className="flex items-center justify-between gap-3">
                           <span className="truncate">{p.name}</span>
-                          <button type="button" className="link" onClick={() => set({ photos: a.photos.filter((_, n) => n !== k) })}>Remove</button>
+                          <button type="button" className="link" disabled={final} onClick={() => set({ photos: a.photos.filter((_, n) => n !== k) })}>Remove</button>
                         </li>
                       ))}
                     </ul>
@@ -338,10 +354,17 @@ function Blind({ course, scope, aiOn, onRetry }: { course: Course; scope: CheckS
             )}
             <div>
               <h3 className="card-title">Solution</h3>
-              <Markdown className="mt-1">{q.solution}</Markdown>
+              <Markdown className="mt-1">{keys[k]?.solution ?? ""}</Markdown>
             </div>
             {scores[k] === null && (
-              <RubricCheck prompt="Which of these did your answer show?" items={q.rubric} onSave={(score) => finish(scores.map((s, n) => (n === k ? score : s)))} />
+              <RubricCheck
+                prompt="Which of these did your answer show?"
+                items={keys[k]?.rubric ?? []}
+                onSave={(score) => {
+                  void postJSON("/api/answer", { questionId: q.id, selfScore: score }).catch(() => {});
+                  finish(scores.map((s, n) => (n === k ? score : s)));
+                }}
+              />
             )}
           </section>
         );

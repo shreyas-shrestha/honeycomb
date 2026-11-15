@@ -2,20 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { daysUntil, localISO } from "./mastery";
-import { DEFAULT_POLICY, STREAM_ERROR, type Course, type InstructorPolicy, type Topic, type TopicContext, type TopicState } from "./types";
+import { DEFAULT_POLICY, STREAM_ERROR, type InstructorPolicy } from "./types";
 
-export function topicContext(course: Course, topic: Topic, state?: TopicState): TopicContext {
-  return {
-    courseCode: course.code,
-    courseTitle: course.title,
-    instructor: course.basis === "demo" ? undefined : course.instructor || undefined,
-    topicTitle: topic.title,
-    topicSummary: topic.summary,
-    objectives: topic.objectives,
-    prereqTitles: topic.prereqs.map((id) => course.topics.find((t) => t.id === id)?.title).filter((t): t is string => Boolean(t)),
-    mastery: state?.attempts ? state.mastery : undefined,
-  };
-}
+export { topicContext } from "./course";
 
 // Every call to our own API goes through here so failures surface the same way.
 type Method = "GET" | "POST" | "PUT" | "DELETE";

@@ -95,10 +95,11 @@ const QuestionSchema = z.object({
   kind: z.enum(["mcq", "free"]),
   prompt: md,
   choices: z.array(text(4000)).max(6),
-  answerIndex: z.number().int().min(0).max(5),
+  answerIndex: z.number().int().min(-1).max(5), // -1 on a copy whose key is in the vault
   solution: md,
   rubric: z.array(text(1000)).max(8),
   difficulty: z.number(),
+  type: text(40).optional(),
 });
 
 const CourseSchema = z.object({

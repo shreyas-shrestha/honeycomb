@@ -10,7 +10,7 @@ const COOKIE = "hc_session";
 const SESSION_DAYS = 30;
 const SESSION_MS = SESSION_DAYS * 86_400_000;
 
-const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
+export const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 export const newId = (bytes = 12) => randomBytes(bytes).toString("base64url");
 
 export async function hashPassword(password: string): Promise<string> {

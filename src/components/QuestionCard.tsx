@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { errorText, postJSON } from "@/lib/client";
-import type { Grade, Question, TopicContext } from "@/lib/types";
+import type { AnswerKey, Grade, Question, TopicContext } from "@/lib/types";
 import { Markdown } from "./Markdown";
 import { Mark, Notice, RubricCheck, VerdictLine } from "./ui";
 
@@ -32,6 +32,10 @@ export function QuestionCard({ question: q, context, aiOn, eyebrow, scored = tru
   const [confidence, setConfidence] = useState<number | null>(null);
   const [phase, setPhase] = useState<"answer" | "grading" | "self" | "done">("answer");
   const [grade, setGrade] = useState<Grade | null>(null);
+  // The answer key arrives from the server once the question is closed. A question
+  // from before the vault still carries its own, which also covers a failed request.
+  const [key, setKey] = useState<AnswerKey | null>(null);
+  const local: AnswerKey | null = q.vaulted ? null : { answerIndex: q.answerIndex, solution: q.solution, rubric: q.rubric };
   const [error, setError] = useState("");
   // Grading can outlive the card (the learner moves on); a late result must not be recorded.
   const live = useRef(true);
@@ -51,26 +55,45 @@ export function QuestionCard({ question: q, context, aiOn, eyebrow, scored = tru
     onResult(g.score, sure);
   }
 
+  type Answered = { grade: Grade | null; key: AnswerKey };
+  const answer = (body: object) => postJSON<Answered>("/api/answer", { questionId: q.id, ...body });
+
   async function check() {
     if (!hasAnswer || confidence === null) return;
     setError("");
-    onAnswered?.();
-    if (q.kind === "mcq") return finish({ score: choice === q.answerIndex ? 1 : 0, feedback: "", missed: [] }, confidence);
-    if (!aiOn) return setPhase("self");
     setPhase("grading");
     try {
-      const { grade: g } = await postJSON<{ grade: Grade }>("/api/grade", {
-        context,
-        prompt: q.prompt,
-        answer: text,
-        solution: q.solution,
-        rubric: q.rubric,
-      });
-      if (live.current) finish(g, confidence);
+      if (q.kind === "free" && !aiOn) {
+        // No grader: close the question, show the key, and let the student mark it.
+        setKey((await answer({ reveal: true })).key);
+        if (!live.current) return;
+        onAnswered?.();
+        return setPhase("self");
+      }
+      const r = await answer(q.kind === "mcq" ? { choice } : { context, text });
+      if (!live.current) return;
+      setKey(r.key);
+      onAnswered?.();
+      finish(r.grade ?? { score: 0, feedback: "", missed: [] }, confidence);
     } catch (e) {
       if (!live.current) return;
+      if (q.kind === "mcq" && local) {
+        setKey(local);
+        onAnswered?.();
+        return finish({ score: choice === local.answerIndex ? 1 : 0, feedback: "", missed: [] }, confidence);
+      }
       setError(errorText(e, "Grading failed."));
-      setPhase("self");
+      if (q.kind === "mcq") return setPhase("answer");
+      // Written answers fall back to marking by hand, if the key can be had.
+      try {
+        const shown = local ?? (await answer({ reveal: true })).key;
+        if (!live.current) return;
+        setKey(shown);
+        onAnswered?.();
+        setPhase("self");
+      } catch {
+        if (live.current) setPhase("answer");
+      }
     }
   }
 
@@ -86,7 +109,7 @@ export function QuestionCard({ question: q, context, aiOn, eyebrow, scored = tru
         <div className="mt-4 grid gap-2" role="radiogroup" aria-label="Answer choices">
           {q.choices.map((c, i) => {
             const letter = String.fromCharCode(65 + i);
-            const state = phase === "done" ? (i === q.answerIndex ? "right" : i === choice ? "wrong" : undefined) : undefined;
+            const state = phase === "done" && key ? (i === key.answerIndex ? "right" : i === choice ? "wrong" : undefined) : undefined;
             const badge = state === "right" ? "border-leaf bg-leaf text-surface" : state === "wrong" ? "border-rose bg-rose text-surface" : "border-line";
             return (
               <button
@@ -145,10 +168,10 @@ export function QuestionCard({ question: q, context, aiOn, eyebrow, scored = tru
         </div>
       )}
 
-      {phase === "grading" && <p className="mt-5 text-sm text-muted" role="status">Reading your answer…</p>}
-      {error && <div className="mt-4"><Notice tone="rose">{error} You can score it yourself below.</Notice></div>}
+      {phase === "grading" && <p className="mt-5 text-sm text-muted" role="status">{q.kind === "mcq" ? "Checking…" : "Reading your answer…"}</p>}
+      {error && <div className="mt-4"><Notice tone="rose">{error}{phase === "self" ? " You can score it yourself below." : ""}</Notice></div>}
 
-      {revealed && (
+      {revealed && key && (
         <div className="mt-5 space-y-4 border-t border-line pt-5">
           {phase === "done" && grade && <VerdictLine score={grade.score} />}
           {grade?.feedback && <Markdown>{grade.feedback}</Markdown>}
@@ -156,14 +179,18 @@ export function QuestionCard({ question: q, context, aiOn, eyebrow, scored = tru
           {underconfident && <Notice tone="leaf">You marked this Guessing and got it right.</Notice>}
           <div>
             <h3 className="card-title">Solution</h3>
-            <Markdown className="mt-1.5">{q.solution}</Markdown>
+            <Markdown className="mt-1.5">{key.solution}</Markdown>
           </div>
 
           {phase === "self" && (
             <RubricCheck
               prompt="Compare your answer with the solution. Which points did you make?"
-              items={q.rubric}
-              onSave={(score, missed) => finish({ score, feedback: "", missed }, confidence ?? 2)}
+              items={key.rubric}
+              onSave={(score, missed) => {
+                // Kept on the server too, as the record of this question.
+                void answer({ selfScore: score }).catch(() => {});
+                finish({ score, feedback: "", missed }, confidence ?? 2);
+              }}
             />
           )}
 

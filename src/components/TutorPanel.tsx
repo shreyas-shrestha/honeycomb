@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { errorText, streamPost } from "@/lib/client";
+import { errorText, getJSON, streamPost } from "@/lib/client";
+import { attemptMessage, hintMessage, isAttempt, MAX_HINTS, MIN_ATTEMPT_CHARS } from "@/lib/tutor-protocol";
 import { HELP_LEVELS, type ChatMessage, type InstructorPolicy, type TopicContext } from "@/lib/types";
 import { Markdown } from "./Markdown";
 import { Notice } from "./ui";
@@ -13,11 +14,10 @@ interface Props {
   aiPolicy: string;
   aiOn: boolean;
   material: string; // the student's uploaded material for this topic, as text
-  question?: { prompt: string; solution: string; choices?: string[]; answered: boolean };
+  // The question on screen. Only its id goes to the server, which holds the question and knows whether it is answered.
+  question?: { id: string; prompt: string; answered: boolean };
 }
 
-const MIN_ATTEMPT = 15;
-const MAX_HINTS = 3;
 const SENT = 40; // messages sent with each request
 const STARTERS = ["I don’t get why this works", "Quiz me on this"];
 
@@ -27,21 +27,37 @@ export function TutorPanel({ context, policy, classId, aiPolicy, aiOn, material,
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   // Per question: whether the student has put an attempt in words, and how many hints they have used.
-  const [gate, setGate] = useState<{ prompt: string; attempted: boolean; hints: number }>({ prompt: "", attempted: false, hints: 0 });
+  const [gate, setGate] = useState<{ id: string; attempted: boolean; hints: number }>({ id: "", attempted: false, hints: 0 });
   const scroller = useRef<HTMLDivElement>(null);
   const busy = reply !== null;
   const level = HELP_LEVELS.find((l) => l.id === policy.helpLevel)?.name ?? "";
 
   // While a scored question is open the tutor is guarded: attempt first, then counted hints.
   const guarded = question !== undefined && !question.answered;
-  const here = guarded && gate.prompt === question.prompt ? gate : { prompt: question?.prompt ?? "", attempted: false, hints: 0 };
+  const here = guarded && gate.id === question.id ? gate : { id: question?.id ?? "", attempted: false, hints: 0 };
   const needsAttempt = guarded && !here.attempted;
 
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
   }, [messages, reply]);
 
-  async function send(textIn: string, hint?: number) {
+  // The server keeps the count of hints for each question; ask it, so a reload does not show the wrong number.
+  const openId = guarded && aiOn ? question.id : null;
+  useEffect(() => {
+    if (!openId) return;
+    let live = true;
+    getJSON<{ attempted: boolean; hintsUsed: number }>(`/api/tutor?question=${encodeURIComponent(openId)}`)
+      .then((r) => {
+        // The server's count wins; an attempt made here while the request was out still stands.
+        if (live) setGate((g) => ({ id: openId, attempted: r.attempted || (g.id === openId && g.attempted), hints: r.hintsUsed }));
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [openId]);
+
+  async function send(textIn: string) {
     const text = textIn.trim();
     if (!text || busy) return;
     const history: ChatMessage[] = [...messages, { role: "user", content: text }];
@@ -52,13 +68,18 @@ export function TutorPanel({ context, policy, classId, aiPolicy, aiOn, material,
     if (guarded) setGate({ ...here, attempted: true });
     // Send the recent conversation, always with the attempt that opened the gate.
     const recent = history.slice(-SENT);
-    const opener = history.find((m) => m.role === "user" && m.content.startsWith("My attempt:"));
+    const opener = history.find((m) => m.role === "user" && isAttempt(m.content));
     const sent = guarded && opener && !recent.includes(opener) ? [opener, ...recent] : recent;
     try {
-      const full = await streamPost("/api/tutor", { context, classId, aiPolicy, question, material: material || undefined, hint, messages: sent }, setReply);
+      const full = await streamPost("/api/tutor", { context, classId, aiPolicy, question: question && { id: question.id, open: !question.answered }, material: material || undefined, messages: sent }, setReply);
       setMessages([...history, { role: "assistant", content: full }]);
-      // A hint is used up only once it has arrived.
-      if (guarded && hint) setGate({ ...here, attempted: true, hints: hint });
+      // The server says how many hints are gone: one that could not be written safely is not counted.
+      if (guarded) {
+        const id = question.id;
+        getJSON<{ hintsUsed: number }>(`/api/tutor?question=${encodeURIComponent(id)}`)
+          .then((r) => setGate({ id, attempted: true, hints: r.hintsUsed }))
+          .catch(() => {});
+      }
     } catch (e) {
       // A failed reply is shown as an error and kept out of the conversation sent to the model.
       setError(errorText(e, "Could not reach the tutor."));
@@ -108,7 +129,7 @@ export function TutorPanel({ context, policy, classId, aiPolicy, aiOn, material,
           className="space-y-2 border-t border-line px-4 py-3"
           onSubmit={(e) => {
             e.preventDefault();
-            send(needsAttempt ? `My attempt: ${draft}` : draft);
+            send(needsAttempt ? attemptMessage(draft) : draft);
           }}
         >
           <label htmlFor="tutor-input" className={needsAttempt ? "label !mb-0" : "sr-only"}>
@@ -125,7 +146,7 @@ export function TutorPanel({ context, policy, classId, aiPolicy, aiOn, material,
           <div className="flex flex-wrap items-center justify-between gap-2">
             {guarded && !needsAttempt ? (
               here.hints < MAX_HINTS ? (
-                <button type="button" className="btn btn-sm" disabled={busy} onClick={() => send(`Hint ${here.hints + 1}, please.`, here.hints + 1)}>
+                <button type="button" className="btn btn-sm" disabled={busy} onClick={() => send(hintMessage(here.hints + 1))}>
                   Hint {here.hints + 1} of {MAX_HINTS}
                 </button>
               ) : (
@@ -134,7 +155,7 @@ export function TutorPanel({ context, policy, classId, aiPolicy, aiOn, material,
             ) : (
               <span />
             )}
-            <button type="submit" className="btn btn-sm btn-primary" disabled={busy || draft.trim().length < (needsAttempt ? MIN_ATTEMPT : 1)}>
+            <button type="submit" className="btn btn-sm btn-primary" disabled={busy || draft.trim().length < (needsAttempt ? MIN_ATTEMPT_CHARS : 1)}>
               {needsAttempt ? "Share my attempt" : "Send"}
             </button>
           </div>

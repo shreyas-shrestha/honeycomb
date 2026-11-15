@@ -11,6 +11,7 @@ const NAV: { href: string; label: string; short?: string; instructorOnly?: boole
   { href: "/course", label: "Study plan", short: "Plan" },
   { href: "/review", label: "Review" },
   { href: "/studio", label: "Studio" },
+  { href: "/connect", label: "Connect" },
   { href: "/teach", label: "Classes", instructorOnly: true },
 ];
 
