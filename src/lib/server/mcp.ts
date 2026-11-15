@@ -6,7 +6,7 @@ import { attemptMessage, hintMessage, MAX_HINTS } from "../tutor-protocol";
 import { PASS_SCORE, type Question, type Review, type User } from "../types";
 import { aiAvailable, errorMessage } from "./ai";
 import { rateLimited } from "./auth";
-import { answerQuestion, closeBlind } from "./answering";
+import { answerQuestion, BLANK, closeBlind } from "./answering";
 import { reviewAnswer } from "./grading";
 import { loadProgress, locate, recordAttempts, type Saved } from "./progress";
 import { writeQuestions } from "./questions";
@@ -248,15 +248,21 @@ export function honeycombServer(user: User): McpServer {
           const at = setting(saved, q.topicId);
           if (!at) return refuse("The course these questions belong to was not found.");
           const answer = given.get(q.id) ?? "";
-          marked.push({ q, review: answer.trim() ? await reviewAnswer({ context: at.context, question: q, answer, material: at.material }) : { score: 0, lines: [], feedback: "No answer was given.", fullCredit: "" } });
+          marked.push({ q, review: answer.trim() ? await reviewAnswer({ context: at.context, question: q, answer, material: at.material }) : BLANK });
         }
         // The set is closed in a fixed order. Whoever closes its first question owns the hand-in;
         // a second hand-in racing this one stops there and records nothing.
         marked.sort((x, y) => (x.q.id < y.q.id ? -1 : 1));
         const report: string[] = [];
         const byTopic = new Map<string, number[]>();
+        let stopped = "";
         for (const [n, { q, review }] of marked.entries()) {
-          const closed = await closeBlind(user.id, q, review);
+          // If closing fails partway, what has closed is still recorded and reported; the rest stays open to hand in again.
+          const closed = await closeBlind(user.id, q, review).catch((e) => {
+            stopped = `\n(This is a partial result. ${marked.length - n} of ${marked.length} could not be recorded: ${errorMessage(e)} Hand in only these again: ${marked.slice(n).map((m) => m.q.id).join(", ")}.)`;
+            return null;
+          });
+          if (!closed) break;
           if (!closed.first && n === 0) return refuse("These questions have already been handed in.");
           if (!closed.first) continue;
           byTopic.set(q.topicId, [...(byTopic.get(q.topicId) ?? []), review.score]);
@@ -264,9 +270,10 @@ export function honeycombServer(user: User): McpServer {
         }
         // One blind result per topic, the mean of its questions.
         const results = [...byTopic].map(([topicId, got]) => ({ topicId, score: got.reduce((a, b) => a + b, 0) / got.length, blind: true }));
-        const unsaved = await recordAttempts(user.id, results).then(() => "", saveFailed);
+        if (!report.length) return refuse(`Nothing could be recorded.${stopped}`);
+        const unsaved = (await recordAttempts(user.id, results).then(() => "", saveFailed)) + stopped;
         const overall = results.reduce((a, r) => a + r.score, 0) / results.length;
-        return say(`Blind practice result: ${pct(overall)} (${overall >= PASS_SCORE ? "passed" : `below the ${pct(PASS_SCORE)} pass line`}).${unsaved}\n\n${report.join("\n\n---\n\n")}`);
+        return say(`Blind practice result: ${pct(overall)}${stopped ? "" : ` (${overall >= PASS_SCORE ? "passed" : `below the ${pct(PASS_SCORE)} pass line`})`}.${unsaved}\n\n${report.join("\n\n---\n\n")}`);
       }),
   );
 

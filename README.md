@@ -108,6 +108,8 @@ npm run check:skills  # validates the skill files
 - Mastery is still recorded by the browser for work done in the app (work done through MCP is recorded by the server), so a student can alter their own readiness numbers. The vault keeps each question's score as a separate record.
 - The sample course's questions and solutions ship in the app bundle so it works with no API key; only generated, imported and class questions are fully vaulted.
 - A page reload in the middle of blind practice discards the paper.
+- Vault rows are never deleted, so an account that reaches its cap of stored questions cannot make room.
+- A published class carries the keys of its practice questions to each joiner's own vault, so an instructor account and a second account could be used together to read a practice key. Blind practice questions are never published.
 - No email verification or password reset, and instructor accounts are self-declared.
 - Rate limits are kept in memory, so they assume a single server process.
 - Students who already joined a class get later updates only by entering the code again.

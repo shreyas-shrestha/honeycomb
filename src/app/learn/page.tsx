@@ -274,6 +274,10 @@ function Session({ course, topic, aiOn }: { course: Course; topic: Topic; aiOn: 
     go(to);
   };
   const open = current ? { id: current.id, prompt: current.prompt, answered } : held && phase !== "done" ? { ...held, answered: false } : undefined;
+  // The tutor panel belongs to the last question that was open: it keeps its chat while that question is answered
+  // or the learner steps back to the lesson, and starts again only when a different question opens.
+  const [panel, setPanel] = useState("topic");
+  if (open && open.id !== panel) setPanel(open.id);
   const toPractice = () => go(practiceDone ? "teach" : "practice");
   const next = upNext(course, states, course.topics.length).find((s) => s.topic.id !== topic.id && (aiOn || pools[s.topic.id]?.length));
 
@@ -400,9 +404,9 @@ function Session({ course, topic, aiOn }: { course: Course; topic: Topic; aiOn: 
         )}
       </div>
 
-      {/* A new question gets a new panel, so one question's attempt and chat never carry over to the next. */}
+      {/* A different question gets a new panel, so one question's attempt and chat never carry over to the next. */}
       <TutorPanel
-        key={open?.id ?? "topic"}
+        key={panel}
         context={context}
         policy={policy}
         classId={course.classId}

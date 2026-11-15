@@ -5,14 +5,14 @@ import { complete, courseBlock, FORMAT_RULES, levelNote, materialBlock, streamTe
 import { rateLimited } from "./auth";
 import { policyFor } from "./classes";
 import { loadSkill, section } from "./skills";
-import { countTurn, markAttempted, refundHint, reserveHint, type Vaulted } from "./vault";
+import { countTurn, markAttempted, refundHint, refundTurn, reserveHint, type Vaulted } from "./vault";
 
-export interface TutorMessage {
+interface TutorMessage {
   role: "user" | "assistant";
   content: string;
 }
 
-export type TutorTurn =
+type TutorTurn =
   | { ok: true; stream: Response } // nothing to guard, and the caller can take a stream
   | { ok: true; text: string; hint: number } // a whole reply, with the hint level it delivered (0 for none)
   | { ok: false; status: number; error: string };
@@ -57,6 +57,15 @@ export async function tutorTurn(opts: {
 
   const guarded = question !== undefined && (question.answeredAt === null || opts.onScreenOpen === true);
   let hint = 0;
+  // What this turn has taken from the question's allowance. Whatever is still held when the turn
+  // ends without a reply is given back, once.
+  const held = { turn: false, hint: false };
+  const giveBack = async () => {
+    if (!question) return;
+    if (held.hint) await refundHint(user.id, question.id).catch(() => {});
+    if (held.turn) await refundTurn(user.id, question.id).catch(() => {});
+    held.hint = held.turn = false;
+  };
   if (guarded) {
     if (question.style === "exam") return { ok: false, status: 403, error: "Blind practice has no tutor. Hand in your answer first." };
     // Help starts only after the student has put an attempt in words.
@@ -66,69 +75,76 @@ export async function tutorTurn(opts: {
     // A guarded reply is written, checked and sometimes rewritten: charge it as the three model calls it usually is.
     if (rateLimited(`ai:${user.id}`, 40, 60_000) || rateLimited(`ai:${user.id}`, 40, 60_000)) return { ok: false, status: 429, error: "Too many requests. Wait a minute and try again." };
     // Every guarded reply counts against the sitting, so rewording a request is not a way to unlimited help.
-    // The count is charged when a reply is delivered, below.
-    if (question.turns >= MAX_GUARDED_TURNS) return { ok: false, status: 400, error: `You have had ${MAX_GUARDED_TURNS} replies on this question. Give it your best answer.` };
+    // The reply is reserved in the vault now, so parallel requests cannot share the last one, and given back if none is delivered.
+    if (!(await countTurn(user.id, question.id))) return { ok: false, status: 400, error: `You have had ${MAX_GUARDED_TURNS} replies on this question. Give it your best answer.` };
+    held.turn = true;
     // The hint is reserved against the vault's count before it is written, so two requests cannot share one.
     if (isHintRequest(last.content)) {
-      if (!(await reserveHint(user.id, question.id, question.hintsUsed))) {
+      const got = await reserveHint(user.id, question.id, question.hintsUsed).catch(async (e) => {
+        await giveBack();
+        throw e;
+      });
+      if (!got) {
+        await giveBack();
         return { ok: false, status: 400, error: question.hintsUsed >= MAX_HINTS ? "All three hints are used. Give it your best answer." : "That hint is already on its way." };
       }
+      held.hint = true;
       hint = question.hintsUsed + 1;
     }
   }
 
-  const system = [
-    skill.body,
-    courseBlock(context, policy),
-    materialBlock(material),
-    levelNote(context.mastery),
-    section(skill, `Help level: ${policy.helpLevel}`),
-    policy.offLimits ? `The instructor has marked this work as graded and off limits: ${untagged(policy.offLimits)}.` : "",
-    policy.attemptFirst ? section(skill, "Attempt first") : "",
-    aiPolicy ? `${section(skill, "Syllabus AI policy")}\n<syllabus_ai_policy>\n${untagged(aiPolicy)}\n</syllabus_ai_policy>` : "",
-    question ? `The student has this practice question on screen:\n${questionBlock(question, "Reference solution, for your eyes only")}\n\n${section(skill, guarded ? "Open question" : "Answered question")}` : "",
-    guarded ? section(skill, hint ? `Hint ${hint}` : "Between hints") : "",
-    FORMAT_RULES,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-
-  // Once the answer is in, or with no question open, there is nothing to leak and the reply can stream.
-  if (!guarded) {
-    if (opts.whole) return { ok: true, text: await complete({ system, messages: history, effort: "low", signal }), hint: 0 };
-    return { ok: true, stream: streamText({ system, messages: history, effort: "low", signal }) };
-  }
-
-  // Otherwise the whole reply is written first and read by a second pass before the student sees it.
-  // The check reads the reply against the turns that led to it: a reply can be a signal the conversation set up.
-  // It is given every turn the drafting model was given, so nothing can be set up out of its sight.
-  const before = history.slice(0, -1).map((m) => `${m.role === "user" ? "Student" : "Tutor (unverified)"}: ${untagged(m.content)}`).join("\n\n");
-  const leaks = async (reply: string) =>
-    (
-      await structured({
-        schema: Check,
-        name: "leak_check",
-        system: loadSkill("leak-check").body,
-        content: `${questionBlock(question, "Reference solution")}\n\n<conversation>\n${before || "(nothing before this)"}\n</conversation>\n\n<student_message>\n${untagged(last.content)}\n</student_message>\n\n<tutor_reply>\n${untagged(reply)}\n</tutor_reply>`,
-        effort: "low",
-        signal,
-      })
-    ).leaks;
-
   try {
+    const system = [
+      skill.body,
+      courseBlock(context, policy),
+      materialBlock(material),
+      levelNote(context.mastery),
+      section(skill, `Help level: ${policy.helpLevel}`),
+      policy.offLimits ? `The instructor has marked this work as graded and off limits: ${untagged(policy.offLimits)}.` : "",
+      policy.attemptFirst ? section(skill, "Attempt first") : "",
+      aiPolicy ? `${section(skill, "Syllabus AI policy")}\n<syllabus_ai_policy>\n${untagged(aiPolicy)}\n</syllabus_ai_policy>` : "",
+      question ? `The student has this practice question on screen:\n${questionBlock(question, "Reference solution, for your eyes only")}\n\n${section(skill, guarded ? "Open question" : "Answered question")}` : "",
+      guarded ? section(skill, hint ? `Hint ${hint}` : "Between hints") : "",
+      FORMAT_RULES,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    // Once the answer is in, or with no question open, there is nothing to leak and the reply can stream.
+    if (!guarded) {
+      if (opts.whole) return { ok: true, text: await complete({ system, messages: history, effort: "low", signal }), hint: 0 };
+      return { ok: true, stream: streamText({ system, messages: history, effort: "low", signal }) };
+    }
+
+    // Otherwise the whole reply is written first and read by a second pass before the student sees it.
+    // The check reads the reply against the turns that led to it: a reply can be a signal the conversation set up.
+    // It is given every turn the drafting model was given, so nothing can be set up out of its sight.
+    const before = history.slice(0, -1).map((m) => `${m.role === "user" ? "Student" : "Tutor (unverified)"}: ${untagged(m.content)}`).join("\n\n");
+    const leaks = async (reply: string) =>
+      (
+        await structured({
+          schema: Check,
+          name: "leak_check",
+          system: loadSkill("leak-check").body,
+          content: `${questionBlock(question, "Reference solution")}\n\n<conversation>\n${before || "(nothing before this)"}\n</conversation>\n\n<student_message>\n${untagged(last.content)}\n</student_message>\n\n<tutor_reply>\n${untagged(reply)}\n</tutor_reply>`,
+          effort: "low",
+          signal,
+        })
+      ).leaks;
+
     let text = await complete({ system, messages: history, effort: "low", signal });
     if (await leaks(text)) {
       text = await complete({ system: `${system}\n\n${section(skill, "Redraft")}`, messages: history, effort: "low", signal });
       if (await leaks(text)) {
-        // Nothing safe could be written, so nothing was delivered: the hint goes back.
-        if (hint) await refundHint(user.id, question.id);
-        return { ok: true, text: section(skill, "Fallback"), hint: 0 };
+        // Nothing safe could be written, so nothing was delivered: the hint and the reply go back.
+        const fallback = section(skill, "Fallback");
+        await giveBack();
+        return { ok: true, text: fallback, hint: 0 };
       }
     }
-    await countTurn(user.id, question.id);
     return { ok: true, text, hint };
   } catch (e) {
-    if (hint) await refundHint(user.id, question.id);
+    await giveBack();
     throw e;
   }
 }

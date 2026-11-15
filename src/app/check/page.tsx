@@ -22,6 +22,7 @@ interface Answer {
   photos: { name: string; data: string }[];
 }
 const blank = (): Answer => ({ choice: null, text: "", photos: [] });
+const BLANK: Review = { score: 0, lines: [], feedback: "No answer was given.", fullCredit: "" };
 // One marked question: its score (null until marked by hand), the reviewer's lines if any, and the key.
 interface Marked {
   score: number | null;
@@ -79,6 +80,8 @@ function Blind({ course, scope, aiOn, onRetry }: { course: Course; scope: CheckS
   const recorded = useRef(false);
   // What has come back for each question, kept so a failed hand-in only re-marks what is missing.
   const kept = useRef(new Map<number, Marked>());
+  // The questions already marked after a hand-in that failed partway. Their answers are final.
+  const [locked, setLocked] = useState<number[]>([]);
 
   async function begin() {
     setError("");
@@ -117,7 +120,7 @@ function Blind({ course, scope, aiOn, onRetry }: { course: Course; scope: CheckS
       const r = await answer({ choice: a.choice });
       return { score: r.grade?.score ?? 0, review: null, key: r.key };
     }
-    if (!answered(q, a)) return { score: 0, review: { score: 0, lines: [], feedback: "No answer was given.", fullCredit: "" }, key: (await answer({ reveal: true })).key };
+    if (!answered(q, a)) return { score: 0, review: BLANK, key: (await answer({ reveal: true })).key };
     if (!aiOn) return { score: null, review: null, key: (await answer({ reveal: true })).key };
     const topic = course.topics.find((t) => t.id === q.topicId) ?? topics[0];
     const r = await postJSON<{ review: Review; key: AnswerKey }>("/api/review", {
@@ -143,7 +146,8 @@ function Blind({ course, scope, aiOn, onRetry }: { course: Course; scope: CheckS
     const failed = settled.find((r) => r.status === "rejected");
     if (failed) {
       const missing = settled.filter((r) => r.status === "rejected").length;
-      setError(`${errorText(failed.reason, "Marking failed.")} ${missing} of ${questions.length} answers still need marking; the rest are kept.`);
+      setError(`${errorText(failed.reason, "Marking failed.")} ${missing} of ${questions.length} answers still need marking; the rest are marked and cannot be changed.`);
+      setLocked([...kept.current.keys()]);
       setStage("answering");
       return;
     }
@@ -179,9 +183,11 @@ function Blind({ course, scope, aiOn, onRetry }: { course: Course; scope: CheckS
   if (stage === "answering" || stage === "marking") {
     const q = questions[i];
     const a = answers[i];
+    // An answer is final once it has been marked, and while the set is being marked.
+    const final = stage === "marking" || locked.includes(i);
     const set = (patch: Partial<Answer>) => {
-      kept.current.delete(i); // a changed answer needs marking again
-      setAnswers(answers.map((x, k) => (k === i ? { ...x, ...patch } : x)));
+      if (final) return;
+      setAnswers((all) => all.map((x, k) => (k === i ? { ...x, ...patch } : x)));
     };
     const last = i === questions.length - 1;
     const unanswered = questions.filter((x, k) => !answered(x, answers[k])).length;
@@ -205,10 +211,11 @@ function Blind({ course, scope, aiOn, onRetry }: { course: Course; scope: CheckS
         </header>
         <div className="card p-5 sm:p-6">
           <Markdown>{q.prompt}</Markdown>
+          {final && <p className="hint mt-3">This answer has been marked and cannot be changed.</p>}
           {q.kind === "mcq" ? (
             <div className="mt-4 grid gap-2" role="radiogroup" aria-label="Answer choices">
               {q.choices.map((c, k) => (
-                <button key={k} type="button" role="radio" aria-checked={a.choice === k} className="choice" onClick={() => set({ choice: k })}>
+                <button key={k} type="button" role="radio" aria-checked={a.choice === k} disabled={final} className="choice" onClick={() => set({ choice: k })}>
                   <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line-ui text-xs font-semibold">{String.fromCharCode(65 + k)}</span>
                   <Markdown className="min-w-0 flex-1">{c}</Markdown>
                 </button>
@@ -218,18 +225,18 @@ function Blind({ course, scope, aiOn, onRetry }: { course: Course; scope: CheckS
             <div className="mt-4 space-y-3">
               <div>
                 <label className="label" htmlFor="blind-answer">Your answer, with your reasoning</label>
-                <textarea id="blind-answer" className="field min-h-40" value={a.text} onChange={(e) => set({ text: e.target.value })} placeholder="Write it the way you would on the exam paper." />
+                <textarea id="blind-answer" className="field min-h-40" disabled={final} value={a.text} onChange={(e) => set({ text: e.target.value })} placeholder="Write it the way you would on the exam paper." />
               </div>
               {aiOn && (
                 <div>
                   <label className="label" htmlFor="blind-photos">Or photos of your written work <span className="font-normal text-muted">· up to {MAX_PHOTOS}</span></label>
-                  <input id="blind-photos" type="file" accept="image/png,image/jpeg,image/webp" multiple disabled={a.photos.length >= MAX_PHOTOS} className="block w-full text-sm text-muted file:mr-3 file:min-h-[2.75rem] file:rounded-full file:border file:border-line-ui file:bg-surface file:px-4 file:text-sm file:font-semibold file:text-ink" onChange={(e) => { void addPhotos(e.target.files); e.target.value = ""; }} />
+                  <input id="blind-photos" type="file" accept="image/png,image/jpeg,image/webp" multiple disabled={final || a.photos.length >= MAX_PHOTOS} className="block w-full text-sm text-muted file:mr-3 file:min-h-[2.75rem] file:rounded-full file:border file:border-line-ui file:bg-surface file:px-4 file:text-sm file:font-semibold file:text-ink" onChange={(e) => { void addPhotos(e.target.files); e.target.value = ""; }} />
                   {a.photos.length > 0 && (
                     <ul className="mt-2 space-y-1 text-sm">
                       {a.photos.map((p, k) => (
                         <li key={k} className="flex items-center justify-between gap-3">
                           <span className="truncate">{p.name}</span>
-                          <button type="button" className="link" onClick={() => set({ photos: a.photos.filter((_, n) => n !== k) })}>Remove</button>
+                          <button type="button" className="link" disabled={final} onClick={() => set({ photos: a.photos.filter((_, n) => n !== k) })}>Remove</button>
                         </li>
                       ))}
                     </ul>

@@ -5,7 +5,8 @@ import { close, closeRevealed, endSitting, findQuestion, keyOf, setSelfScore, ty
 export type Outcome<T> = ({ ok: true } & T) | { ok: false; status: number; error: string };
 const no = (status: number, error: string) => ({ ok: false as const, status, error });
 const plain = (score: number): Grade => ({ score, feedback: "", missed: [] });
-const BLANK: Review = { score: 0, lines: [], feedback: "No answer was given.", fullCredit: "" };
+// The marking of a question that was handed in with nothing written.
+export const BLANK: Review = { score: 0, lines: [], feedback: "No answer was given.", fullCredit: "" };
 
 // Answers a practice question, for the app and for MCP alike. The first answer
 // closes the question and fixes its recorded score; a question that comes round

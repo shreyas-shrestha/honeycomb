@@ -62,7 +62,6 @@ export function loadSkill(name: string): Skill {
   return skill;
 }
 
-/** The base grading brief, with the marking guidance for one question type appended when it is known. */
 // One named section of a skill. A renamed or missing heading is an error, not a silent gap in a prompt.
 export function section(skill: Skill, name: string): string {
   const text = skill.sections[name];
@@ -70,6 +69,7 @@ export function section(skill: Skill, name: string): string {
   return text;
 }
 
+/** The base grading brief, with the marking guidance for one question type appended when it is known. */
 export function reviewerBrief(type?: QuestionType): string {
   const base = loadSkill("reviewer").body;
   return type ? `${base}\n\n${loadSkill(`reviewer-${type}`).body}` : base;

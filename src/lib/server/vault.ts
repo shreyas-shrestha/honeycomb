@@ -93,14 +93,14 @@ async function insert(userId: string, q: Question, style: Vaulted["style"], batc
 }
 
 // Whether this account can hold `more` questions. Keeps one account from filling the database.
-export async function hasRoom(userId: string, more = 1): Promise<boolean> {
+async function hasRoom(userId: string, more = 1): Promise<boolean> {
   return ((await one<{ n: number }>("SELECT COUNT(*) AS n FROM questions WHERE user_id = ?", userId))?.n ?? 0) + more <= MAX_HELD;
 }
 
 // Files new questions in the vault under fresh ids and returns them in full.
 // Questions written as one blind practice set share a batch, so they are handed in together.
 export async function storeQuestions(userId: string, topicId: string, list: Omit<Question, "id" | "topicId">[], style: Vaulted["style"]): Promise<Vaulted[]> {
-  if (!(await hasRoom(userId, list.length))) throw new Error("This account holds too many questions. Remove a course to make room.");
+  if (!(await hasRoom(userId, list.length))) throw new Error("This account holds as many questions as it can.");
   const batch = style === "exam" ? `b_${newId(9)}` : null;
   const stored: Question[] = list.map((q) => ({ ...q, id: `q_${newId(9)}`, topicId }));
   for (const q of stored) await insert(userId, q, style, batch);
@@ -111,7 +111,7 @@ export async function storeQuestions(userId: string, topicId: string, list: Omit
 export async function fileQuestions(userId: string, list: Question[]): Promise<void> {
   const fresh: Question[] = [];
   for (const q of list) if (!(await read(userId, q.id))) fresh.push(q);
-  if (!(await hasRoom(userId, fresh.length))) throw new Error("This account holds too many questions. Remove a course to make room.");
+  if (!(await hasRoom(userId, fresh.length))) throw new Error("This account holds as many questions as it can.");
   for (const q of fresh) await insert(userId, q, "practice");
 }
 
@@ -178,6 +178,11 @@ export async function markAttempted(userId: string, id: string): Promise<void> {
 // Counts one guarded reply against the sitting's allowance. False when it is used up.
 export async function countTurn(userId: string, id: string): Promise<boolean> {
   return (await run("UPDATE questions SET turns = turns + 1 WHERE user_id = ? AND id = ? AND turns < ?", userId, id, MAX_GUARDED_TURNS)) > 0;
+}
+
+// Gives a counted reply back when none was delivered.
+export async function refundTurn(userId: string, id: string): Promise<void> {
+  await run("UPDATE questions SET turns = turns - 1 WHERE user_id = ? AND id = ? AND turns > 0", userId, id);
 }
 
 // Takes the next hint, but only if the count is still what the caller read: two

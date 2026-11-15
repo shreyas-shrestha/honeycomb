@@ -5,8 +5,7 @@ import { answerQuestion } from "@/lib/server/answering";
 import { ContextSchema, parseBody } from "@/lib/server/body";
 import { findQuestion } from "@/lib/server/vault";
 
-// Answers one question. This is the only way the answer key leaves the server:
-// it comes back with the result, once the question is closed.
+// Answers one question. The answer key comes back with the result, once the question is closed, and never before.
 const Body = z.object({
   questionId: z.string().min(1).max(200),
   context: ContextSchema.optional(),
