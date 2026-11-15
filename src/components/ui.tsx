@@ -62,9 +62,12 @@ const VERDICT = {
 } as const;
 
 // The same three verdicts everywhere a score is shown.
-export function VerdictLine({ score }: { score: number }) {
+// Pass marks where the answer was marked in points, so a pass with a lost mark does not read as "Correct".
+export function VerdictLine({ score, marks }: { score: number; marks?: { earned: number; possible: number } }) {
   const v = verdictFor(score);
-  const text = v === "correct" ? "Correct" : v === "partial" ? `Partly there (${pct(score)})` : "Not yet";
+  const text = marks
+    ? `${marks.earned}/${marks.possible} · ${v === "correct" ? "Passed" : v === "partial" ? "Partly there" : "Not yet"}`
+    : v === "correct" ? "Correct" : v === "partial" ? `Partly there (${pct(score)})` : "Not yet";
   return (
     <p className={`font-semibold ${VERDICT[v].cls}`} role="status">
       <Mark kind={VERDICT[v].mark} /> {text}

@@ -63,7 +63,8 @@ export type Block =
   | { kind: "order"; prompt: string; steps: string[]; why: string } // steps are stored in the correct order
   | { kind: "fill"; prompt: string; parts: string[]; blanks: string[]; bank: string[]; why: string } // parts.length === blanks.length + 1
   | { kind: "match"; prompt: string; pairs: { left: string; right: string }[] }
-  | { kind: "trace"; title: string; frames: { caption: string; cells: string[]; active: number[] }[] }
+  // shape "tree" draws the cells as a binary tree in level order (a leading "_" cell means the array is 1-indexed).
+  | { kind: "trace"; title: string; shape?: "row" | "tree"; frames: { caption: string; cells: string[]; active: number[] }[] }
   | { kind: "reveal"; prompt: string; answer: string };
 
 export type BlockKind = Block["kind"];
@@ -130,14 +131,15 @@ export interface TopicState {
   correct: number;
   card: StoredCard | null;
   calibration: { confidence: number; score: number }[];
+  // The last blind practice result. Without one, mastery cannot pass the guided cap.
+  verified?: { score: number; at: string };
 }
 
-export type HelpLevel = "hints" | "guided" | "full";
+export type HelpLevel = "hints" | "guided";
 
 export const HELP_LEVELS: { id: HelpLevel; name: string; detail: string }[] = [
   { id: "hints", name: "Hints only", detail: "One hint at a time. Never a final answer; if a student stays stuck, the tutor works a different problem of the same type." },
-  { id: "guided", name: "Guided help", detail: "Hints first, then the stuck step, with the next step handed back. A full solution only after a real attempt." },
-  { id: "full", name: "Full solutions", detail: "Complete solutions are allowed once the student says what they tried, followed by a check question." },
+  { id: "guided", name: "Guided help", detail: "Hints first, then help with the step the student is stuck on, handing the next step back. Never the final answer." },
 ];
 
 export interface InstructorPolicy {
@@ -147,6 +149,41 @@ export interface InstructorPolicy {
   offLimits: string;
   allowedModes: ModeId[];
   attemptFirst: boolean;
+}
+
+// What Honeycomb keeps from an uploaded file: a digest per topic, never the file itself.
+export interface Material {
+  id: string;
+  name: string;
+  kind: "notes" | "homework" | "practice exam" | "syllabus" | "other";
+  addedAt: string;
+  style: string; // how this course asks questions, in a sentence or two
+  byTopic: Record<string, { notes: string; examples: string[] }>;
+}
+
+// One line of a reviewer's marking.
+export interface ReviewLine {
+  criterion: string;
+  earned: number;
+  possible: number;
+  comment: string;
+}
+
+// A blind-practice answer as marked by the reviewer.
+export interface Review {
+  score: number; // 0..1
+  lines: ReviewLine[];
+  feedback: string;
+  fullCredit: string; // what a full-credit answer would have included
+}
+
+// What a blind practice session covers.
+export interface CheckScope {
+  courseId: string;
+  topicIds: string[];
+  title: string;
+  exam: boolean;
+  at?: number; // when it was started, so starting again is a new sitting
 }
 
 export type Verdict = "correct" | "partial" | "incorrect";

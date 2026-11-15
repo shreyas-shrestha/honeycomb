@@ -7,6 +7,9 @@ const DEFAULT_MAX_BYTES = 1_000_000;
 
 const text = (max: number) => z.string().max(max);
 
+// The student's own uploaded material for a topic, already digested to text.
+export const MaterialText = z.string().max(12_000).optional();
+
 export const ContextSchema = z.object({
   courseCode: text(40),
   courseTitle: text(200),
@@ -22,7 +25,8 @@ const ModeSchema = z.enum(["walkthrough", "socratic", "visual", "derive", "recap
 export { ModeSchema };
 
 export const PolicySchema = z.object({
-  helpLevel: z.enum(["hints", "guided", "full"]),
+  // "full" was an option in an earlier version; it now means guided.
+  helpLevel: z.enum(["hints", "guided", "full"]).transform((l) => (l === "hints" ? "hints" : "guided")),
   emphasis: text(2000),
   notation: text(2000),
   offLimits: text(2000),

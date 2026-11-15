@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { requireUser } from "@/lib/server/auth";
-import { aiAvailable, courseBlock, errorMessage, FORMAT_RULES, levelNote, NO_AI, structured, untagged } from "@/lib/server/ai";
-import { BlockSchema, MAX_BLOCKS } from "@/lib/blocks";
-import { ContextSchema, parseBody } from "@/lib/server/body";
+import { aiAvailable, courseBlock, errorMessage, FORMAT_RULES, levelNote, materialBlock, NO_AI, structured, untagged } from "@/lib/server/ai";
+import { blockProblem, BlockSchema, MAX_BLOCKS } from "@/lib/blocks";
+import { ContextSchema, MaterialText, parseBody } from "@/lib/server/body";
 import { policyFor } from "@/lib/server/classes";
 import type { Block } from "@/lib/types";
 
@@ -13,6 +13,7 @@ const Body = z.object({
   classId: z.string().max(60).optional(),
   kinds: z.array(z.enum(KINDS)).min(1).max(7),
   note: z.string().max(1000).optional(),
+  material: MaterialText,
 });
 
 // Structured output needs every field present, so the model fills one flat
@@ -22,6 +23,7 @@ const Out = z.object({
     z.object({
       kind: z.enum(KINDS),
       title: z.string().describe("text, trace: short heading. Others: empty"),
+      shape: z.enum(["row", "tree"]).describe("trace: tree when the cells are a binary tree in level order (a heap, a complete BST), otherwise row. Others: row"),
       prompt: z.string().describe("check, order, fill, match, reveal: the instruction or question. Others: empty"),
       body: z.string().describe("text: the explanation. fill: the sentence with each blank written as ___. reveal: the answer. Others: empty"),
       options: z.array(z.string()).describe("check: three or four options. Others: empty"),
@@ -55,7 +57,7 @@ function toBlock(r: Raw): Block | null {
     case "match":
       return { kind: "match", prompt: r.prompt, pairs: r.pairs };
     case "trace":
-      return { kind: "trace", title: r.title, frames: r.frames.map((f) => ({ ...f, active: f.active.map(Math.round).filter((i) => i >= 0 && i < f.cells.length) })) };
+      return { kind: "trace", title: r.title, shape: r.shape, frames: r.frames.map((f) => ({ ...f, active: f.active.map(Math.round).filter((i) => i >= 0 && i < f.cells.length) })) };
     case "reveal":
       return { kind: "reveal", prompt: r.prompt, answer: r.body };
   }
@@ -69,19 +71,21 @@ export async function POST(req: Request) {
   if (!aiAvailable()) return NO_AI();
   const body = await parseBody(req, Body);
   if (!body.ok) return body.response;
-  const { context, classId, kinds, note } = body.data;
+  const { context, classId, kinds, note, material } = body.data;
   const policy = await policyFor(auth.user, classId, context.courseCode);
 
   const system = `You design short interactive lessons for a study app used by Georgia Tech students. A lesson is a sequence of blocks the student works through one at a time, each unlocking the next. The student learns by doing something in nearly every block, so a lesson that is mostly reading has failed even if the explanation is good.
 
 ${courseBlock(context, policy)}
 
+${materialBlock(material)}
+
 ${levelNote(context.mastery)}
 
 The block kinds:
 - text: a short explanation, at most 90 words. Use it to set up what the next activity needs, never two in a row.
 - check: a multiple-choice question answered on the spot. Good as an opening prediction before anything is explained, and for catching a misconception right after it becomes possible.
-- trace: a step-through of a process, one state per frame. Each frame shows a row of cells (an array, a table's slots, a list of variables and values) with the cells that just changed highlighted, and a caption saying what happened and why. Use it wherever the topic has a procedure, an algorithm, or a calculation with stages; six to ten frames.
+- trace: a step-through of a process, one state per frame. Each frame shows a row of cells (an array, a table's slots, a list of variables and values) with the cells that just changed highlighted, and a caption saying what happened and why. Use it wherever the topic has a procedure, an algorithm, or a calculation with stages. Hard limits, or the trace is thrown away: six to ten frames, at most 15 cells in a frame, at most 12 characters in a cell. Pick an example small enough to fit. For a binary tree stored in level order, set shape to tree; a 1-indexed tree starts with a first cell of exactly "_" for the unused slot.
 - order: three to six steps the student arranges into the right sequence, with only one defensible order. Use it for procedures and derivations.
 - fill: a sentence with blanks filled from a word bank. Use it for a key definition or rule in the course's exact terms. The sentence and the words are plain text with no Markdown or LaTeX, and every blank takes a different word.
 - match: three to five pairs to connect, such as operation and cost, term and meaning, case and outcome. No two items on the same side may be the same.
@@ -93,7 +97,13 @@ Write seven to nine blocks using only these kinds: ${kinds.join(", ")}. Open wit
 
   try {
     const out = await structured({ schema: Out, name: "interactive_lesson", system, content, effort: "medium", signal: req.signal });
-    const blocks = out.blocks.map(toBlock).filter(usable).filter((b) => kinds.includes(b.kind)).slice(0, MAX_BLOCKS);
+    const made = out.blocks.map(toBlock);
+    // A dropped block can leave the next one pointing at nothing, so say which and why.
+    made.forEach((b, i) => {
+      const problem = b ? blockProblem(b) : "could not be read";
+      if (problem) console.warn(`interactive lesson: dropped block ${i + 1} (${out.blocks[i].kind}): ${problem}`);
+    });
+    const blocks = made.filter(usable).filter((b) => kinds.includes(b.kind)).slice(0, MAX_BLOCKS);
     if (blocks.length < 3) return Response.json({ error: "The lesson came back incomplete. Try again." }, { status: 502 });
     return Response.json({ blocks });
   } catch (e) {

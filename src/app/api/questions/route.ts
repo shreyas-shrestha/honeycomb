@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { requireUser } from "@/lib/server/auth";
 import { policyFor } from "@/lib/server/classes";
-import { aiAvailable, courseBlock, errorMessage, FORMAT_RULES, NO_AI, structured } from "@/lib/server/ai";
-import { ContextSchema, parseBody } from "@/lib/server/body";
+import { aiAvailable, courseBlock, errorMessage, FORMAT_RULES, materialBlock, NO_AI, structured } from "@/lib/server/ai";
+import { ContextSchema, MaterialText, parseBody } from "@/lib/server/body";
 import type { Question } from "@/lib/types";
 
 const Body = z.object({
@@ -10,6 +10,10 @@ const Body = z.object({
   classId: z.string().max(60).optional(),
   topicId: z.string().min(1).max(200),
   avoid: z.array(z.string().max(4000)).max(40).optional(),
+  // "exam" writes free-response questions for blind practice, marked by the reviewer.
+  style: z.enum(["practice", "exam"]).optional(),
+  count: z.number().int().min(1).max(4).optional(),
+  material: MaterialText,
 });
 
 const Questions = z.object({
@@ -32,14 +36,20 @@ export async function POST(req: Request) {
   if (!aiAvailable()) return NO_AI();
   const body = await parseBody(req, Body);
   if (!body.ok) return body.response;
-  const { context, classId, topicId, avoid } = body.data;
+  const { context, classId, topicId, avoid, style = "practice", count = 2, material } = body.data;
   const policy = await policyFor(auth.user, classId, context.courseCode);
 
   const system = `You write practice questions for a study app used by Georgia Tech students. The questions are how the app measures whether the student has learned a topic, and they are reused later for spaced review, so each one must stand on its own and have one defensible answer.
 
 ${courseBlock(context, policy)}
 
-Write five questions: three multiple-choice and two free-response, ordered from easiest to hardest, ending at the difficulty of this course's exams. Test understanding and application, such as tracing, computing, predicting or spotting the error, over recalling a definition. Wrong multiple-choice options should each come from a specific mistake students make, and all four options should be similar in length and form so the answer cannot be guessed from shape. Vary which position holds the correct option. Free-response questions should be answerable in two to six sentences or a short calculation.
+${materialBlock(material)}
+
+${
+  style === "exam"
+    ? `Write ${count} free-response exam question${count === 1 ? "" : "s"} at the difficulty and in the form of this course's exams, the kind a student answers on paper with their work shown: a trace, a derivation, a proof, a calculation, or an explanation of why something holds. No multiple choice. Where the student's material includes example questions, write new questions of the same type and length with different specifics; do not reuse one. For each, give a rubric of three to five lines, each naming one thing a full-credit answer shows and its points in brackets, such as "[3] correct final array". Put most of the points on method and justification. Write each prompt as the question alone: no question number, no heading, no point total, and no note about where its style or notation came from.`
+    : `Write five questions: three multiple-choice and two free-response, ordered from easiest to hardest, ending at the difficulty of this course's exams. Test understanding and application, such as tracing, computing, predicting or spotting the error, over recalling a definition. Wrong multiple-choice options should each come from a specific mistake students make, and all four options should be similar in length and form so the answer cannot be guessed from shape. Vary which position holds the correct option. Free-response questions should be answerable in two to six sentences or a short calculation.`
+}
 
 Check every answer by working the problem yourself before writing the solution. ${FORMAT_RULES}`;
 
@@ -54,7 +64,8 @@ Check every answer by working the problem yourself before writing the solution. 
       .map((q) => ({ ...q, answerIndex: Math.round(q.answerIndex) }))
       // Keep only items the app can score: a real keyed option, or a rubric to grade against.
       .filter((q) => (q.kind === "mcq" ? q.choices.length >= 2 && q.answerIndex >= 0 && q.answerIndex < q.choices.length : q.rubric.length > 0))
-      .map((q, i) => ({ ...q, id: `${topicId}.q${stamp}${i}`, topicId }));
+      .filter((q) => style !== "exam" || q.kind === "free")
+      .map((q, i) => ({ ...q, id: `${topicId}.${style === "exam" ? "x" : "q"}${stamp}${i}`, topicId }));
     if (!questions.length) return Response.json({ error: "No usable questions were generated. Try again." }, { status: 502 });
     return Response.json({ questions });
   } catch (e) {

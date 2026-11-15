@@ -126,33 +126,99 @@ function CheckBlock({ block, onDone }: BlockProps<"check">) {
   );
 }
 
+const EMPTY_CELL = "·";
+const TREE_W = 320;
+const LEVEL_H = 58;
+const NODE_R = 19;
+
+// The cells drawn as a binary tree in level order. A leading "_" means the
+// array is 1-indexed and its first slot is unused, as in a CS 1332 heap.
+function TraceTree({ cells, active, changed, frame }: { cells: string[]; active: number[]; changed: boolean[]; frame: number }) {
+  const offset = cells[0] === "_" ? 1 : 0;
+  const place = (i: number) => {
+    const k = i - offset + 1; // 1-based position in the tree
+    const level = Math.floor(Math.log2(k));
+    return { x: ((k - 2 ** level + 0.5) / 2 ** level) * TREE_W, y: NODE_R + 6 + level * LEVEL_H };
+  };
+  const shown = cells.map((value, i) => ({ value, i })).filter((n) => n.i >= offset && n.value !== EMPTY_CELL && n.value !== "");
+  const has = new Set(shown.map((n) => n.i));
+  const height = Math.max(...shown.map((n) => place(n.i).y), NODE_R) + NODE_R + 8;
+  return (
+    <svg viewBox={`0 0 ${TREE_W} ${height}`} className="mx-auto w-full max-w-sm" role="img" aria-label={`Tree with values ${shown.map((n) => n.value).join(", ")}`}>
+      {shown.map((n) => {
+        const parent = offset + Math.floor((n.i - offset - 1) / 2);
+        if (n.i === offset || !has.has(parent)) return null;
+        const from = place(parent);
+        const to = place(n.i);
+        return <line key={`e${n.i}`} x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke="var(--line-ui)" strokeWidth="1.5" />;
+      })}
+      {shown.map((n) => {
+        const { x, y } = place(n.i);
+        const on = active.includes(n.i);
+        return (
+          // The key changes with the frame for a node whose value changed, which replays its animation.
+          <g key={changed[n.i] ? `n${n.i}:${frame}` : `n${n.i}`} transform={`translate(${x} ${y})`} className={changed[n.i] ? "node-pop" : undefined}>
+            <circle r={NODE_R} fill={on ? "var(--honey)" : "var(--surface)"} stroke={on ? "var(--ink)" : "var(--line-ui)"} strokeWidth={on ? 2 : 1.5} style={{ transition: "fill 0.25s ease" }} />
+            <text textAnchor="middle" dominantBaseline="central" fontSize="15" fontWeight={on ? 700 : 500} fill="var(--ink)" style={{ fontFamily: "var(--font-code), monospace" }}>{n.value}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+const FRAME_MS = 2800;
+
 function TraceBlock({ block, onDone }: BlockProps<"trace">) {
   const [i, setI] = useState(0);
+  const [playing, setPlaying] = useState(false);
   const frame = block.frames[i];
   const last = block.frames.length - 1;
+  const before = i > 0 ? block.frames[i - 1].cells : frame.cells;
+  const changed = frame.cells.map((c, k) => i > 0 && c !== before[k]);
+
   const go = (n: number) => {
     setI(n);
-    if (n === last) onDone();
+    if (n === last) {
+      setPlaying(false);
+      onDone();
+    }
   };
+  // Autoplay advances one frame at a time until the end or until paused.
+  useEffect(() => {
+    if (!playing) return;
+    const timer = setTimeout(() => go(i + 1), FRAME_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, i]);
+
   return (
     <>
       {block.title && <h3 className="card-title mb-3">{block.title}</h3>}
+      {block.shape === "tree" && (
+        <div className="mb-3 rounded-[10px] bg-paper px-3 py-3">
+          <TraceTree cells={frame.cells} active={frame.active} changed={changed} frame={i} />
+        </div>
+      )}
       <div className="overflow-x-auto rounded-[10px] bg-paper px-3 pb-3 pt-4">
         <div className="flex w-max min-w-full gap-1 sm:gap-1.5">
           {frame.cells.map((c, k) => (
             <div key={k} className="flex flex-col items-center gap-1">
-              <div className="cell" data-on={frame.active.includes(k)}>{c}</div>
+              <div key={changed[k] ? `${k}:${i}` : k} className="cell" data-on={frame.active.includes(k)} data-changed={changed[k]}>{c}</div>
               <span className="font-mono text-xs text-muted">{k}</span>
             </div>
           ))}
         </div>
       </div>
-      <div className="mt-3 min-h-[4.5rem]" aria-live="polite">
+      <div className="mt-3 min-h-[4.5rem]" aria-live={playing ? "off" : "polite"}>
         <Markdown>{frame.caption}</Markdown>
       </div>
-      <div className="mt-3 flex items-center gap-3">
-        <button type="button" className="btn btn-sm" disabled={i === 0} onClick={() => go(i - 1)}>Back</button>
-        <button type="button" className={`btn btn-sm ${i === last ? "" : "btn-primary"}`} disabled={i === last} onClick={() => go(i + 1)}>Next frame</button>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <button type="button" className="btn btn-sm" disabled={i === 0} onClick={() => { setPlaying(false); go(i - 1); }}>Back</button>
+        <button type="button" className={`btn btn-sm ${i === last ? "" : "btn-primary"}`} disabled={i === last} onClick={() => { setPlaying(false); go(i + 1); }}>Next frame</button>
+        <button type="button" className="btn btn-sm" aria-pressed={playing} onClick={() => (i === last ? (setI(0), setPlaying(true)) : setPlaying(!playing))}>
+          {playing ? "Pause" : i === last ? "Replay" : "Play"}
+        </button>
         <span className="text-sm tabular-nums text-muted">Frame {i + 1} of {block.frames.length}</span>
       </div>
     </>
