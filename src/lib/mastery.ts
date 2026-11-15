@@ -9,6 +9,9 @@ const scheduler = fsrs(
 
 const RESCHEDULE_GAP_MS = 12 * 60 * 60 * 1000;
 const PREREQ_READY = 0.5;
+// Practice with a lesson and tutor at hand can raise mastery only this far.
+// Going higher takes blind practice: no hints, graded like an exam.
+export const GUIDED_CAP = 0.6;
 export const CALIBRATION_NOTICE = 0.15;
 
 function revive(card: StoredCard): Card {
@@ -32,7 +35,8 @@ function rating(score: number, confidence: number): Grade {
 
 // Records one answer. Pass confidence null for a teach-back, where no confidence
 // was asked: it moves mastery but stays out of the calibration and answer counts.
-export function recordAttempt(prev: TopicState | undefined, score: number, confidence: number | null, now = new Date()): TopicState {
+// Pass blind for an answer given with no help available.
+export function recordAttempt(prev: TopicState | undefined, score: number, confidence: number | null, now = new Date(), blind = false): TopicState {
   const s = prev ?? EMPTY_TOPIC_STATE;
   // A session asks several questions on one topic within minutes. Only the
   // first answer of a sitting moves the review date; the rest move mastery.
@@ -42,17 +46,28 @@ export function recordAttempt(prev: TopicState | undefined, score: number, confi
     ? store(scheduler.next(s.card ? revive(s.card) : createEmptyCard(now), now, rating(score, confidence ?? 2)).card)
     : s.card;
   // A confident wrong answer moves mastery down harder than a hesitant one.
-  const rate = score < 0.5 && confidence === 3 ? 0.5 : 0.35;
-  const mastery = Math.min(1, Math.max(0, s.mastery + rate * (score - s.mastery)));
-  if (confidence === null) return { ...s, mastery, card };
+  const rate = blind || (score < 0.5 && confidence === 3) ? 0.5 : 0.35;
+  const moved = Math.min(1, Math.max(0, s.mastery + rate * (score - s.mastery)));
+  // Assisted work can lower mastery freely but cannot lift it past the cap.
+  const mastery = blind || moved <= s.mastery ? moved : Math.min(moved, Math.max(s.mastery, GUIDED_CAP));
+  const verified = blind ? { score, at: now.toISOString() } : s.verified;
+  // A blind answer counts as an answer, but no confidence was asked, so it stays out of calibration.
+  if (blind) return { ...s, mastery, card, verified, attempts: s.attempts + 1, correct: s.correct + (score >= PASS_SCORE ? 1 : 0) };
+  if (confidence === null) return { ...s, mastery, card, verified };
   return {
     ...s,
     mastery,
     card,
+    verified,
     attempts: s.attempts + 1,
     correct: s.correct + (score >= PASS_SCORE ? 1 : 0),
     calibration: [...s.calibration, { confidence, score }].slice(-30),
   };
+}
+
+// A topic is verified once its latest blind practice was a pass.
+export function isVerified(s: TopicState | undefined): boolean {
+  return (s?.verified?.score ?? 0) >= PASS_SCORE;
 }
 
 export function retrievability(s: TopicState | undefined, now = new Date()): number {

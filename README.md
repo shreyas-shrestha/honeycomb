@@ -22,7 +22,7 @@ To build courses from your own syllabus and turn on the tutor, AI-written lesson
 cp .env.example .env.local
 ```
 
-Put your OpenAI API key in `.env.local` and restart the dev server. The default model is `gpt-6.1-sol`; set `HONEYCOMB_MODEL` to change it.
+Put your OpenAI API key in `.env.local` and restart the dev server. The default model is `gpt-6-luna`; set `HONEYCOMB_MODEL` to change it.
 
 Accounts, sessions, saved progress and classes live in a SQLite file at `data/honeycomb.db`, created on first run. Set `HONEYCOMB_DB` to move it.
 

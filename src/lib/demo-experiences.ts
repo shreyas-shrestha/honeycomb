@@ -74,6 +74,7 @@ const bst: Block[] = [
   {
     kind: "trace",
     title: "Remove 50, the root, using its successor",
+    shape: "tree",
     frames: [
       { caption: "The tree, written level by level: 50 at the root, then 30 and 70, then 20, 40, 60, 80. We want to remove **50**.", cells: ["50", "30", "70", "20", "40", "60", "80"], active: [0] },
       { caption: "50 has two children, so it cannot simply be cut out. Find its **successor**: go right once, to 70.", cells: ["50", "30", "70", "20", "40", "60", "80"], active: [2] },
@@ -129,6 +130,7 @@ const heaps: Block[] = [
   {
     kind: "trace",
     title: "remove() on the heap [_, 2, 5, 3, 9, 6, 8]",
+    shape: "tree",
     frames: [
       { caption: "The minimum is at index 1. Save **2** to return.", cells: ["_", "2", "5", "3", "9", "6", "8"], active: [1] },
       { caption: "Move the **last** element, 8, to the root. Taking the last slot keeps the tree complete.", cells: ["_", "8", "5", "3", "9", "6"], active: [1] },

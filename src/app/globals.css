@@ -181,6 +181,10 @@
     transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
   }
   .cell[data-on="true"] { background: var(--honey); border-color: var(--ink); font-weight: 600; transform: translateY(-3px); }
+  /* A value that just changed gives one small bounce, in the row and in the tree. */
+  @keyframes value-pop { 0% { scale: 1; } 40% { scale: 1.2; } 100% { scale: 1; } }
+  .cell[data-changed="true"] { animation: value-pop 0.45s ease; }
+  .node-pop > circle, .node-pop > text { animation: value-pop 0.45s ease; transform-box: fill-box; transform-origin: center; }
 
   /* Rendered lesson and tutor text */
   .prose-hc { line-height: 1.7; font-size: 1rem; overflow-wrap: anywhere; }
@@ -200,6 +204,8 @@
   .prose-hc details { border: 1px dashed var(--line-strong); border-radius: 10px; padding: 0.55em 0.85em; background: var(--paper); }
   .prose-hc summary { cursor: pointer; font-weight: 600; color: var(--honey-deep); }
   .prose-hc .katex { font-size: 1em; }
+  /* KaTeX sizes a boxed answer for content-box; the global border-box reset collapses it to a line. */
+  .prose-hc .katex .fbox, .prose-hc .katex .fcolorbox { box-sizing: content-box; }
   .prose-hc .katex-display { overflow-x: auto; overflow-y: hidden; padding: 0.2em 0; }
   .prose-sm { font-size: 0.875rem; line-height: 1.6; }
 
@@ -212,6 +218,7 @@
   }
   @media (prefers-reduced-motion: reduce) {
     .btn, .chip, .choice, .cell { transition: none; }
+    .cell[data-changed="true"], .node-pop > circle, .node-pop > text { animation: none; }
     .cell[data-on="true"] { transform: none; }
   }
 }

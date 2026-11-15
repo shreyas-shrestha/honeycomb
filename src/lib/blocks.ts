@@ -19,6 +19,7 @@ export const BlockSchema = z
     z.object({
       kind: z.literal("trace"),
       title: z.string().max(200),
+      shape: z.enum(["row", "tree"]).optional(),
       frames: z.array(z.object({ caption: md, cells: z.array(z.string().max(40)).min(1).max(16), active: z.array(z.number().int().min(0).max(15)).max(16) })).min(2).max(14),
     }),
     z.object({ kind: z.literal("reveal"), prompt: md, answer: md }),

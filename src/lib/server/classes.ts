@@ -114,7 +114,7 @@ export async function leaveClass(user: User, classId: string): Promise<void> {
   await run("DELETE FROM memberships WHERE class_id = ? AND user_id = ?", classId, user.id);
 }
 
-const STRICTNESS: Record<HelpLevel, number> = { hints: 0, guided: 1, full: 2 };
+const STRICTNESS: Record<HelpLevel, number> = { hints: 0, guided: 1 };
 
 // The tutor rules for this user studying this course. The class is found from
 // the user's own memberships, by the class id the app sends or, failing that,

@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from "react";
 import { getJSON, sendJSON } from "./client";
 import { recordAttempt } from "./mastery";
-import type { ClassBundle, Course, Experience, ModeId, Question, TopicState } from "./types";
+import type { CheckScope, ClassBundle, Course, Experience, Material, ModeId, Question, TopicState } from "./types";
 
 export interface State {
   courses: Record<string, Course>;
@@ -13,6 +13,8 @@ export interface State {
   questions: Record<string, Question[]>;
   lessons: Record<string, string>; // `${topicId}:${mode}`
   experiences: Record<string, Experience>; // by topic id
+  materials: Record<string, Material[]>; // by course id
+  check: CheckScope | null; // the blind practice being taken
   mode: ModeId;
 }
 
@@ -24,6 +26,8 @@ const EMPTY: State = {
   questions: {},
   lessons: {},
   experiences: {},
+  materials: {},
+  check: null,
   mode: "walkthrough",
 };
 
@@ -36,6 +40,7 @@ export type SaveStatus = "saved" | "pending" | "retrying" | "rejected" | "unload
 const SAVE_DELAY_MS = 600;
 const RETRY_DELAY_MS = 5000;
 const MAX_QUESTIONS_PER_TOPIC = 30;
+const MAX_MATERIALS_PER_COURSE = 12;
 
 let state: State = EMPTY;
 let owner: string | null = null; // the account this copy belongs to
@@ -104,6 +109,7 @@ function merge(server: State, local: State): State {
     questions,
     lessons: { ...server.lessons, ...local.lessons },
     experiences: { ...server.experiences, ...local.experiences },
+    materials: { ...server.materials, ...local.materials },
   };
 }
 
@@ -244,6 +250,8 @@ export const actions = {
         questions: without(s.questions, ofCourse),
         lessons: without(s.lessons, ofCourse),
         experiences: without(s.experiences, ofCourse),
+        materials: without(s.materials, (k) => k === id),
+        check: s.check?.courseId === id ? null : s.check,
       };
     });
   },
@@ -263,9 +271,18 @@ export const actions = {
   saveQuestions(topicId: string, qs: Question[]) {
     setState((s) => ({ ...s, questions: { ...s.questions, [topicId]: [...(s.questions[topicId] ?? []), ...qs].slice(-MAX_QUESTIONS_PER_TOPIC) } }));
   },
-  // confidence null records a teach-back.
-  attempt(topicId: string, score: number, confidence: number | null) {
-    setState((s) => ({ ...s, topicState: { ...s.topicState, [topicId]: recordAttempt(s.topicState[topicId], score, confidence) } }));
+  // confidence null records a teach-back. blind marks an answer given with no help available.
+  attempt(topicId: string, score: number, confidence: number | null, blind = false) {
+    setState((s) => ({ ...s, topicState: { ...s.topicState, [topicId]: recordAttempt(s.topicState[topicId], score, confidence, new Date(), blind) } }));
+  },
+  startCheck(check: CheckScope) {
+    setState((s) => ({ ...s, check: { ...check, at: Date.now() } }));
+  },
+  addMaterial(courseId: string, material: Material) {
+    setState((s) => ({ ...s, materials: { ...s.materials, [courseId]: [...(s.materials[courseId] ?? []), material].slice(-MAX_MATERIALS_PER_COURSE) } }));
+  },
+  removeMaterial(courseId: string, id: string) {
+    setState((s) => ({ ...s, materials: { ...s.materials, [courseId]: (s.materials[courseId] ?? []).filter((m) => m.id !== id) } }));
   },
 };
 
@@ -279,4 +296,17 @@ export function bundleOf(s: State, courseId: string): ClassBundle | null {
   delete plain.classId;
   delete plain.classCode;
   return { course: plain, questions: pick(s.questions), lessons: pick(s.lessons), experiences: pick(s.experiences) };
+}
+
+// What the student's uploads say about one topic, as text for a prompt. Empty when there is nothing.
+export function materialFor(s: State, courseId: string, topicId: string): string {
+  const parts: string[] = [];
+  for (const m of s.materials[courseId] ?? []) {
+    const t = m.byTopic[topicId];
+    if (!t) continue;
+    parts.push(`From "${m.name}" (${m.kind}). How this course asks questions: ${m.style}`);
+    if (t.notes) parts.push(t.notes);
+    if (t.examples.length) parts.push(`Example questions from it:\n${t.examples.map((e) => `- ${e}`).join("\n")}`);
+  }
+  return parts.join("\n\n").slice(0, 10_000);
 }

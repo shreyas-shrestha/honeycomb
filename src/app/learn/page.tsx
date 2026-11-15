@@ -10,9 +10,9 @@ import { QuestionCard } from "@/components/QuestionCard";
 import { TutorPanel } from "@/components/TutorPanel";
 import { Bar, Empty, Loading, Notice, RubricCheck, VerdictLine } from "@/components/ui";
 import { dueLabel, errorText, pct, postJSON, streamPost, topicContext, useAiStatus, usePolicy } from "@/lib/client";
-import { readiness, upNext } from "@/lib/mastery";
+import { isVerified, readiness, upNext } from "@/lib/mastery";
 import { MODES } from "@/lib/modes";
-import { actions, useStore } from "@/lib/store";
+import { actions, getState, materialFor, useStore } from "@/lib/store";
 import { PASS_SCORE, type Block, type BlockKind, type Course, type Grade, type InstructorPolicy, type Question, type Topic } from "@/lib/types";
 
 type Phase = "try" | "learn" | "practice" | "teach" | "done";
@@ -48,7 +48,7 @@ function Interactive({ course, topic, aiOn, onFinish }: { course: Course; topic:
     // One request per topic, however many times this view mounts while it runs.
     let job = writing.get(topic.id);
     if (!job) {
-      job = postJSON<{ blocks: Block[] }>("/api/experience", { context: topicContext(course, topic, state), classId: course.classId, kinds: ALL_KINDS })
+      job = postJSON<{ blocks: Block[] }>("/api/experience", { context: topicContext(course, topic, state), classId: course.classId, kinds: ALL_KINDS, material: materialFor(getState(), course.id, topic.id) || undefined })
         .then(({ blocks }) => actions.saveExperience(topic.id, blocks))
         .finally(() => writing.delete(topic.id));
       writing.set(topic.id, job);
@@ -83,7 +83,7 @@ function Reading({ course, topic, aiOn, policy }: { course: Course; topic: Topic
   useEffect(() => {
     if (saved || !aiOn) return;
     const ctrl = new AbortController();
-    streamPost("/api/lesson", { context: topicContext(course, topic, state), mode: mode.id, classId: course.classId }, (text) => setLive({ key, text, error: "" }), ctrl.signal)
+    streamPost("/api/lesson", { context: topicContext(course, topic, state), mode: mode.id, classId: course.classId, material: materialFor(getState(), course.id, topic.id) || undefined }, (text) => setLive({ key, text, error: "" }), ctrl.signal)
       .then((text) => actions.saveLesson(topic.id, mode.id, text))
       .catch((e) => {
         if (!ctrl.signal.aborted) setLive({ key, text: "", error: errorText(e, "Could not load the lesson.") });
@@ -215,8 +215,9 @@ function Session({ course, topic, aiOn }: { course: Course; topic: Topic; aiOn: 
   const refilled = useRef(false);
 
   const context = useMemo(() => topicContext(course, topic, state), [course, topic, state]);
+  const material = useStore((s) => materialFor(s, course.id, topic.id));
   const askForQuestions = (avoid?: string[]) =>
-    postJSON<{ questions: Question[] }>("/api/questions", { context: topicContext(course, topic), classId: course.classId, topicId: topic.id, avoid });
+    postJSON<{ questions: Question[] }>("/api/questions", { context: topicContext(course, topic), classId: course.classId, topicId: topic.id, avoid, material: materialFor(getState(), course.id, topic.id) || undefined });
 
   useEffect(() => {
     if (pool?.length || !aiOn) return;
@@ -265,10 +266,14 @@ function Session({ course, topic, aiOn }: { course: Course; topic: Topic; aiOn: 
     window.scrollTo({ top: 0 });
   };
   // Leaving a question that has been answered counts it as finished, so it is never asked and scored twice.
+  // Leaving one unanswered keeps the tutor guarded on it, so the lesson is not a way round the hints.
+  const [held, setHeld] = useState<{ prompt: string; solution: string; choices: string[] } | null>(null);
   const leavePractice = (to: Phase) => {
     if (answered) setIndex(index + 1);
+    else if (current) setHeld({ prompt: current.prompt, solution: current.solution, choices: current.choices });
     go(to);
   };
+  const open = current ? { prompt: current.prompt, solution: current.solution, choices: current.choices, answered } : held && phase !== "done" ? { ...held, answered: false } : undefined;
   const toPractice = () => go(practiceDone ? "teach" : "practice");
   const next = upNext(course, states, course.topics.length).find((s) => s.topic.id !== topic.id && (aiOn || pools[s.topic.id]?.length));
 
@@ -333,7 +338,7 @@ function Session({ course, topic, aiOn }: { course: Course; topic: Topic; aiOn: 
                   context={context}
                   aiOn={aiOn}
                   nextLabel={index + 1 < practice.length ? "Next question" : "On to teach it back"}
-                  onAnswered={() => setAnswered(true)}
+                  onAnswered={() => { setAnswered(true); setHeld(null); }}
                   onResult={(score, confidence) => {
                     actions.attempt(topic.id, score, confidence);
                     setResults((r) => [...r, score]);
@@ -368,9 +373,24 @@ function Session({ course, topic, aiOn }: { course: Course; topic: Topic; aiOn: 
               {results.length > 0 && <>You got {results.filter((r) => r >= PASS_SCORE).length} of {results.length} practice questions right. </>}
               {state?.card ? <>This topic comes back for review <span className="font-semibold text-ink">{dueLabel(state.card.due)}</span>.</> : "Answer practice questions to schedule a review."}
             </p>
+            {!isVerified(state) && (
+              <p className="text-sm leading-relaxed text-muted">
+                You did this with the lesson and tutor nearby, so it is not verified yet. Blind practice asks new questions with no help and marks them like an exam.
+              </p>
+            )}
             <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                className={`btn ${isVerified(state) ? "" : "btn-primary"}`}
+                onClick={() => {
+                  actions.startCheck({ courseId: course.id, topicIds: [topic.id], title: `Blind practice: ${topic.title}`, exam: false });
+                  router.push("/check");
+                }}
+              >
+                Blind practice
+              </button>
               {next && (
-                <button type="button" className="btn btn-primary" onClick={() => actions.open(course.id, next.topic.id)}>
+                <button type="button" className={`btn ${isVerified(state) ? "btn-primary" : ""}`} onClick={() => actions.open(course.id, next.topic.id)}>
                   Next: {next.topic.title}
                 </button>
               )}
@@ -386,7 +406,8 @@ function Session({ course, topic, aiOn }: { course: Course; topic: Topic; aiOn: 
         classId={course.classId}
         aiPolicy={course.aiPolicy}
         aiOn={aiOn}
-        question={current ? { prompt: current.prompt, solution: current.solution, answered } : undefined}
+        material={material}
+        question={open}
       />
     </div>
   );

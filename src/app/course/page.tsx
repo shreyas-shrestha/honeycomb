@@ -4,15 +4,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { HexMap } from "@/components/HexMap";
+import { Materials } from "@/components/Materials";
 import { RequireUser } from "@/components/RequireUser";
 import { Bar, Empty, Notice } from "@/components/ui";
 import { formatDay, pct, useAiStatus } from "@/lib/client";
-import { CALIBRATION_NOTICE, calibrationGap, daysUntil, examReadiness, inDays, isDue, readiness, upNext, weakPrereqs } from "@/lib/mastery";
+import { CALIBRATION_NOTICE, GUIDED_CAP, calibrationGap, daysUntil, examReadiness, inDays, isDue, readiness, upNext, weakPrereqs } from "@/lib/mastery";
 import { actions, useStore } from "@/lib/store";
-import type { Topic, TopicState } from "@/lib/types";
+import { PASS_SCORE, type Topic, type TopicState } from "@/lib/types";
 
 function status(s: TopicState | undefined): { label: string; cls: string } {
-  if (!s || s.attempts === 0) return { label: "New", cls: "text-muted" };
+  if (!s || (s.attempts === 0 && !s.verified)) return { label: "New", cls: "text-muted" };
   if (isDue(s)) return { label: "Review due", cls: "text-honey-deep" };
   if (s.mastery >= 0.8) return { label: "Strong", cls: "text-leaf" };
   return { label: "Learning", cls: "text-honey-deep" };
@@ -41,7 +42,12 @@ function CourseScreen() {
   };
   // A topic can be studied when the AI can write for it or it has ready-made questions.
   const usable = (t: Topic) => aiOn === true || Boolean(pools[t.id]?.length);
-  const startLabel = (t: Topic) => (states[t.id]?.attempts ? "Continue" : "Start");
+  // Blind practice: no hints, no tutor, marked like an exam.
+  const check = (title: string, topics: Topic[], exam: boolean) => {
+    actions.startCheck({ courseId: course.id, topicIds: topics.map((t) => t.id), title, exam });
+    router.push("/check");
+  };
+  const startLabel = (t: Topic) => (states[t.id]?.attempts || states[t.id]?.verified ? "Continue" : "Start");
   const next = upNext(course, states, course.topics.length).find((s) => usable(s.topic));
   const selected = course.topics.find((t) => t.id === picked) ?? next?.topic ?? course.topics[0];
   const gap = calibrationGap(course.topics.map((t) => states[t.id]).filter((s): s is TopicState => Boolean(s)));
@@ -59,7 +65,7 @@ function CourseScreen() {
         {next ? (
           <div className="mt-7 max-w-2xl">
             <p className="text-sm text-muted">Up next{next.reason === "Heavily tested" || next.reason === "Next in the syllabus" ? "" : ` · ${next.reason.toLowerCase()}`}</p>
-            <h2 className="mt-1 text-2xl font-semibold leading-tight">{next.topic.title}</h2>
+            <h2 className="title mt-1">{next.topic.title}</h2>
             <p className="mt-1.5 leading-relaxed text-muted">{next.topic.summary}</p>
             <button type="button" className="btn btn-primary mt-4" onClick={() => start(next.topic)}>{startLabel(next.topic)} this topic</button>
           </div>
@@ -108,9 +114,19 @@ function CourseScreen() {
               <Bar value={readiness(selState)} label="Readiness" />
               <span className="w-10 text-right text-sm font-semibold tabular-nums">{pct(readiness(selState))}</span>
             </div>
-            <div className="mt-4">
+            {usable(selected) && selState?.verified ? (
+              <p className="mt-3 text-sm leading-relaxed text-muted">
+                Last blind practice: {pct(selState.verified.score)}, {selState.verified.score >= PASS_SCORE ? "passed" : `below the ${pct(PASS_SCORE)} pass line`}. Readiness blends this with your other answers and fades as reviews come due.
+              </p>
+            ) : usable(selected) && selState?.attempts ? (
+              <p className="mt-3 text-sm leading-relaxed text-muted">Not verified yet. Readiness stops at {pct(GUIDED_CAP)} until you do blind practice on this topic, because practice with hints nearby overstates what you can do alone.</p>
+            ) : null}
+            <div className="mt-4 flex flex-wrap gap-3">
               {usable(selected) ? (
-                selected.id !== next?.topic.id && <button type="button" className="btn" onClick={() => start(selected)}>{startLabel(selected)} this topic</button>
+                <>
+                  {selected.id !== next?.topic.id && <button type="button" className="btn" onClick={() => start(selected)}>{startLabel(selected)} this topic</button>}
+                  <button type="button" className="btn" onClick={() => check(`Blind practice: ${selected.title}`, [selected], false)}>Blind practice</button>
+                </>
               ) : (
                 <p className="text-sm text-muted">Locked: this topic needs AI, which is off on this site.</p>
               )}
@@ -136,10 +152,20 @@ function CourseScreen() {
                     </div>
                     <p className="text-sm text-muted">{e.date ? formatDay(e.date) : "Date not in syllabus"}{e.weightPct ? ` · ${e.weightPct}% of grade` : ""}</p>
                     {!past && (
-                      <div className="mt-2 flex items-center gap-3">
-                        <Bar value={r} label={`${e.title} readiness`} />
-                        <span className="w-10 text-right text-sm font-semibold tabular-nums">{pct(r)}</span>
-                      </div>
+                      <>
+                        <div className="mt-2 flex items-center gap-3">
+                          <Bar value={r} label={`${e.title} readiness`} />
+                          <span className="w-10 text-right text-sm font-semibold tabular-nums">{pct(r)}</span>
+                        </div>
+                        {course.topics.some((t) => t.examIds.includes(e.id) && usable(t)) && (
+                          <>
+                            <button type="button" className="btn mt-3" onClick={() => check(`Mock ${e.title}`, course.topics.filter((t) => t.examIds.includes(e.id) && usable(t)), true)}>
+                              Take a mock exam
+                            </button>
+                            <p className="hint mt-2">Questions on your weakest {e.title} topics. No hints.</p>
+                          </>
+                        )}
+                      </>
                     )}
                   </li>
                 );
@@ -155,6 +181,8 @@ function CourseScreen() {
           )}
         </section>
       </div>
+
+      <Materials course={course} aiOn={aiOn} />
 
       <section aria-labelledby="all" className="ruled">
         <h2 id="all" className="heading">All topics</h2>
