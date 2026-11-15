@@ -48,6 +48,40 @@ Without `OPENAI_API_KEY` the deployed site still runs: accounts, the sample cour
 | Review | Spaced repetition (FSRS) across all your courses |
 | Classes | An instructor publishes a course and shares a class code; students join with it, and the instructor sets the tutor's rules and sees class averages by topic |
 
+## The harness
+
+The model is never trusted to follow the rules by itself. Each rule is enforced by code around it.
+
+| Layer | What it enforces | Where |
+|---|---|---|
+| Question vault | Solutions, answer keys and rubrics stay on the server. The browser and MCP clients get the prompt, and the key only comes back after the question is answered | `src/lib/server/vault.ts`, `/api/answer` |
+| Guarded tutor | Attempt gate, three hints counted per question in the vault, draft → leak check → one redraft → fixed fallback | `src/lib/server/tutor.ts` |
+| Skills | The tutor, leak-check and reviewer briefs are versioned files. The reviewer is routed by question type: trace, proof, derivation, explanation, calculation | `skills/`, `src/lib/server/skills.ts` |
+| Reviewer | Blind work is marked per rubric line against the server's own copy of the question | `src/lib/server/grading.ts`, `/api/review` |
+| Policy | Help level and off-limits work come from class membership on the server; the strictest class wins | `src/lib/server/classes.ts` |
+| Mastery cap | Practice with help available cannot raise mastery past 60%; only blind practice can | `src/lib/mastery.ts` |
+| Evals | Adversarial tutor prompts, grader calibration bands and upload injection cases | `scripts/evals/` |
+
+## MCP server
+
+Honeycomb is also an MCP server at `/api/mcp` (streamable HTTP, stateless), so the assistant a student already uses can study with them under the same rules. A student creates an access token on the Connect page and adds the server to Claude, ChatGPT or Cursor.
+
+| Tool | What it does |
+|---|---|
+| `list_courses`, `get_study_plan` | Courses, readiness by topic, what to study next, exams |
+| `get_question` | A practice question, without its answer |
+| `request_hint` | The next of three hints, after the student's own attempt, leak-checked |
+| `ask_tutor` | An explanation in the course's notation; guarded when a question is open |
+| `submit_answer` | Checks the answer, records it, returns the solution |
+| `start_blind_practice`, `hand_in_blind` | Exam-style questions with no help, then rubric-line marking |
+
+No tool returns a solution for an unanswered question, and blind practice questions refuse hints. The server also sends instructions telling the host model not to solve Honeycomb questions itself; that part is a request to the other model, not something Honeycomb can enforce.
+
+```bash
+npm run eval          # the eval suite, against a running dev server
+npm run check:skills  # validates the skill files
+```
+
 ## Layout
 
 | Path | What it is |
@@ -59,15 +93,21 @@ Without `OPENAI_API_KEY` the deployed site still runs: accounts, the sample cour
 | `src/app/studio` | Lesson builder |
 | `src/app/teach` | Classes (instructor accounts) |
 | `src/app/api/auth`, `state`, `classes` | Accounts, saved progress, classes |
-| `src/app/api/{course,lesson,experience,questions,grade,tutor}` | Model calls |
+| `src/app/api/{course,lesson,experience,questions,answer,review,grade,tutor,materials}` | Model calls |
+| `src/app/api/mcp`, `tokens`, `src/app/connect` | The MCP server, access tokens, and the page that sets them up |
+| `skills/` | The tutor, leak-check and reviewer briefs |
+| `scripts/evals/` | The eval suite |
 | `src/components/ExperiencePlayer.tsx` | The interactive lesson player |
-| `src/lib/server/` | Database, auth, classes, OpenAI client, request validation, course catalog |
+| `src/lib/server/` | Database, auth, classes, question vault, tutor pipeline, grading, skills loader, MCP tools, OpenAI client, request validation, course catalog |
 | `src/lib/mastery.ts` | Mastery, FSRS scheduling, exam readiness, what to study next |
 | `src/lib/store.ts` | The signed-in learner's state, synced to the server |
 | `src/lib/demo-course.ts`, `demo-experiences.ts` | Hand-written sample content |
 
 ## Not done yet
 
+- Mastery is still recorded by the browser for work done in the app (work done through MCP is recorded by the server), so a student can alter their own readiness numbers. The vault keeps each question's score as a separate record.
+- The sample course's questions and solutions ship in the app bundle so it works with no API key; only generated, imported and class questions are fully vaulted.
+- A page reload in the middle of blind practice discards the paper.
 - No email verification or password reset, and instructor accounts are self-declared.
 - Rate limits are kept in memory, so they assume a single server process.
 - Students who already joined a class get later updates only by entering the code again.

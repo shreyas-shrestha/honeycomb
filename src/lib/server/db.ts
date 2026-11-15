@@ -43,6 +43,41 @@ const SCHEMA = `
     joined_at INTEGER NOT NULL,
     PRIMARY KEY (class_id, user_id)
   );
+  -- The question vault. Solutions, answer keys and rubrics stay here; the browser gets the prompt only.
+  CREATE TABLE IF NOT EXISTS questions (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    id TEXT NOT NULL,
+    topic_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('mcq', 'free')),
+    type TEXT,
+    style TEXT NOT NULL DEFAULT 'practice',
+    prompt TEXT NOT NULL,
+    choices TEXT NOT NULL,
+    answer_index INTEGER NOT NULL,
+    solution TEXT NOT NULL,
+    rubric TEXT NOT NULL,
+    difficulty INTEGER NOT NULL,
+    batch TEXT,
+    attempted INTEGER NOT NULL DEFAULT 0,
+    hints_used INTEGER NOT NULL DEFAULT 0,
+    turns INTEGER NOT NULL DEFAULT 0,
+    revealed INTEGER NOT NULL DEFAULT 0,
+    answered_at INTEGER,
+    score REAL,
+    review TEXT,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, id)
+  );
+  CREATE INDEX IF NOT EXISTS questions_topic ON questions(user_id, topic_id);
+  -- Personal access tokens for the MCP server, stored as hashes.
+  CREATE TABLE IF NOT EXISTS tokens (
+    hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    last_used_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS tokens_user ON tokens(user_id);
 `;
 
 // The hosted database, if one is configured. Vercel's Turso integration names its

@@ -4,12 +4,15 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/check-skills.mjs && next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "eval": "node --env-file=.env.local scripts/evals/run.mjs",
+    "check:skills": "node scripts/check-skills.mjs"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "katex": "^0.19.1",
     "next": "16.4.6",
     "openai": "^7.57.0",

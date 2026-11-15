@@ -267,13 +267,13 @@ function Session({ course, topic, aiOn }: { course: Course; topic: Topic; aiOn: 
   };
   // Leaving a question that has been answered counts it as finished, so it is never asked and scored twice.
   // Leaving one unanswered keeps the tutor guarded on it, so the lesson is not a way round the hints.
-  const [held, setHeld] = useState<{ prompt: string; solution: string; choices: string[] } | null>(null);
+  const [held, setHeld] = useState<{ id: string; prompt: string } | null>(null);
   const leavePractice = (to: Phase) => {
     if (answered) setIndex(index + 1);
-    else if (current) setHeld({ prompt: current.prompt, solution: current.solution, choices: current.choices });
+    else if (current) setHeld({ id: current.id, prompt: current.prompt });
     go(to);
   };
-  const open = current ? { prompt: current.prompt, solution: current.solution, choices: current.choices, answered } : held && phase !== "done" ? { ...held, answered: false } : undefined;
+  const open = current ? { id: current.id, prompt: current.prompt, answered } : held && phase !== "done" ? { ...held, answered: false } : undefined;
   const toPractice = () => go(practiceDone ? "teach" : "practice");
   const next = upNext(course, states, course.topics.length).find((s) => s.topic.id !== topic.id && (aiOn || pools[s.topic.id]?.length));
 
@@ -400,7 +400,9 @@ function Session({ course, topic, aiOn }: { course: Course; topic: Topic; aiOn: 
         )}
       </div>
 
+      {/* A new question gets a new panel, so one question's attempt and chat never carry over to the next. */}
       <TutorPanel
+        key={open?.id ?? "topic"}
         context={context}
         policy={policy}
         classId={course.classId}

@@ -117,6 +117,17 @@ export interface Question {
   solution: string;
   rubric: string[];
   difficulty: number;
+  // What kind of work the question asks for; picks the reviewer's marking guidance.
+  type?: string;
+  // True when the answer key is held on the server: answerIndex, solution and rubric are blank here.
+  vaulted?: boolean;
+}
+
+// What the server hands back once a question has been answered or handed in.
+export interface AnswerKey {
+  answerIndex: number;
+  solution: string;
+  rubric: string[];
 }
 
 export interface StoredCard {

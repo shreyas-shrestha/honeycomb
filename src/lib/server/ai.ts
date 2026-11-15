@@ -44,6 +44,7 @@ export async function structured<T extends z.ZodType>(opts: {
   system: string;
   content: Content;
   effort?: Effort;
+  maxTokens?: number; // a lower ceiling for outputs known to be short
   signal?: AbortSignal;
 }): Promise<z.infer<T>> {
   const res = await client().responses.parse(
@@ -52,7 +53,7 @@ export async function structured<T extends z.ZodType>(opts: {
       instructions: opts.system,
       input: [{ role: "user", content: opts.content }],
       reasoning: { effort: opts.effort ?? "medium" },
-      max_output_tokens: 32000,
+      max_output_tokens: opts.maxTokens ?? 32000,
       text: { format: zodTextFormat(opts.schema, opts.name) },
     },
     { signal: opts.signal },
@@ -139,7 +140,7 @@ export function streamText(opts: {
 export const FORMAT_RULES =
   "Write in GitHub-flavoured Markdown. Put mathematics in LaTeX using $...$ inline and $$...$$ for display, write a literal dollar sign for money as \\$, and put code in fenced blocks with a language tag.";
 
-const DATA_TAGS = /<\/?(syllabus|catalog|web_notes|answer|course_context|question|syllabus_ai_policy|creator_note|material|tutor_reply|student_message)\b[^>]*>/gi;
+const DATA_TAGS = /<\/?(syllabus|catalog|web_notes|answer|course_context|question|syllabus_ai_policy|creator_note|material|tutor_reply|student_message|conversation)\b[^>]*>/gi;
 
 // Removes our own delimiter tags from untrusted text so it cannot close a block early.
 export const untagged = (s: string) => s.replace(DATA_TAGS, "");

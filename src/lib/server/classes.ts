@@ -1,4 +1,5 @@
 import { randomInt } from "node:crypto";
+import { fileQuestions, publicView, withKeys } from "./vault";
 import { DEFAULT_POLICY, type ClassBundle, type ClassInsights, type ClassSummary, type HelpLevel, type InstructorPolicy, type User } from "../types";
 import { newId } from "./auth";
 import { all, one, run } from "./db";
@@ -70,7 +71,11 @@ async function summary(row: ClassRow): Promise<ClassSummary> {
 // Publishing the same course again updates the class in place and keeps its code.
 // Returns null when the owner already has as many classes as allowed.
 export async function publishClass(owner: User, input: ClassBundle): Promise<ClassSummary | null> {
-  const bundle = ownContentOnly(input);
+  const own = ownContentOnly(input);
+  // The browser's copies of vaulted questions have no keys; the class needs the real ones.
+  const questions: ClassBundle["questions"] = {};
+  for (const [topicId, list] of Object.entries(own.questions)) questions[topicId] = await withKeys(owner.id, list);
+  const bundle: ClassBundle = { ...own, questions };
   const title = `${bundle.course.code} ${bundle.course.title}`;
   const code = normalCode(bundle.course.code);
   const existing = await one<ClassRow>("SELECT * FROM classes WHERE owner_id = ? AND course_id = ?", owner.id, bundle.course.id);
@@ -106,8 +111,11 @@ export async function joinClass(user: User, code: string): Promise<JoinResult> {
   const row = await one<ClassRow>("SELECT * FROM classes WHERE code = ?", code.trim().toUpperCase());
   if (!row) return { ok: false, reason: "not-found" };
   if (row.owner_id === user.id) return { ok: false, reason: "own-class" };
+  // The class's questions go into this student's vault first, so a join that cannot hold them fails before the student counts as a member.
+  const bundle = forMember(JSON.parse(row.data) as ClassBundle, row);
+  await fileQuestions(user.id, Object.values(bundle.questions).flat());
   await run("INSERT OR IGNORE INTO memberships (class_id, user_id, joined_at) VALUES (?, ?, ?)", row.id, user.id, Date.now());
-  return { ok: true, bundle: forMember(JSON.parse(row.data) as ClassBundle, row) };
+  return { ok: true, bundle: { ...bundle, questions: Object.fromEntries(Object.entries(bundle.questions).map(([k, qs]) => [k, qs.map(publicView)])) } };
 }
 
 export async function leaveClass(user: User, classId: string): Promise<void> {

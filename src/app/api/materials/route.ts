@@ -53,7 +53,12 @@ export async function POST(req: Request) {
   });
 
   try {
-    const out = await structured({ schema: Digest, name: "material_digest", system: SYSTEM, content, effort: "medium", signal: req.signal });
+    // A digest is short. A low ceiling makes a reply that runs away fail in seconds, and one retry usually clears it.
+    const digest = () => structured({ schema: Digest, name: "material_digest", system: SYSTEM, content, effort: "medium", maxTokens: 9000, signal: req.signal });
+    const out = await digest().catch((e) => {
+      if (e instanceof Error && e.message.startsWith("The response was cut off")) return digest();
+      throw e;
+    });
     const byTopic: Material["byTopic"] = {};
     for (const t of out.topics) {
       const topic = topics[Math.round(t.topic) - 1];
